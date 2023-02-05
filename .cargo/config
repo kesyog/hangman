@@ -2,7 +2,7 @@
 rustflags = [
   "-C", "link-arg=-Tlink.x",
 ]
-runner = "nrfdfu"
+runner = "./flash.sh"
 
 [build]
 target = "thumbv7em-none-eabihf"     # Cortex-M4F and Cortex-M7F (with FPU)

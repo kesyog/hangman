@@ -1,11 +1,11 @@
-/* Linker script for the nRF52 - WITHOUT SOFT DEVICE */
+/* Linker script for the nRF52840 dongle running Nordic's Open Bootloader and SoftDevice S113 7.2.0 */
 MEMORY
 {
   /* NOTE K = KiBi = 1024 bytes */
-  /* Leave room for Nordic DFU bootloader and MBR */
-  /* MBR + SoftDevice S113 7.2.0 are 0x1C000 bytes (see SoftDevice release notes). Bootloader starts at 0xE0000 */
+  /* MBR + SoftDevice S113 7.2.0 are 0x1C000 bytes (see SoftDevice release notes) and start at 0x0 */
+  /* Bootloader starts at 0xE0000 */
   FLASH : ORIGIN = 0x1C000, LENGTH = 0xE0000 - 0x1C000
-  /* MBR + SoftDevice require some TBD amount of RAM, minimum 0x1198 bytes = 4.4kB. Let's just give them 10K for now. */
+  /* MBR + SoftDevice require some amount of RAM, minimum 0x1198 bytes = 4.4kB. Let's just give them 10K for now. */
   RAM : ORIGIN = 0x20000000 + 10K, LENGTH = 256K - 10K
 }
 
