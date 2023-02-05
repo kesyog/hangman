@@ -5,12 +5,12 @@ authors = ["Kesavan Yogeswaran"]
 edition = "2021"
 
 [dependencies]
-cortex-m = "0.7.3"
-cortex-m-rt = "0.7.0"
-rtt-target = { version = "0.3.1", features = ["cortex-m"] }
-nrf52840-hal = { version = "0.16", features = ["rt"] }
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
 panic-abort = "0.3"
-
-[dependencies.embedded-hal]
-version = "0.2.3"
-features = ["unproven"]
+embassy-nrf = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "nrf52840"] }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["nightly"] }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = ["nightly"] }
+nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", features = ["nrf52840", "s113", "ble-gatt-server", "ble-peripheral", "critical-section-impl"] }
+nrf-softdevice-s113 = { git = "https://github.com/embassy-rs/nrf-softdevice" }
+cfg-if = "1.0.0"

@@ -1,38 +1,46 @@
 #![no_main]
 #![no_std]
+#![feature(type_alias_impl_trait)]
 
-use embedded_hal::digital::v2::InputPin;
-use embedded_hal::digital::v2::OutputPin;
-use nrf52840_hal as hal;
-use nrf52840_hal::gpio::Level;
-use rtt_target::{rprintln, rtt_init_print};
+use embassy_executor::Spawner;
+use embassy_nrf as hal;
 
-#[cfg(not(debug_assertions))]
+use hal::{
+    config::{Config, HfclkSource, LfclkSource},
+    gpio,
+};
+use nrf_softdevice as _;
 use panic_abort as _;
 
-#[cfg(debug_assertions)]
-#[panic_handler] // panicking behavior
-fn panic(_: &core::panic::PanicInfo) -> ! {
-    loop {
-        cortex_m::asm::bkpt();
+fn config() -> Config {
+    // Interrupt priority levels 0, 1, and 4 are reserved for the SoftDevice
+    let mut config = Config::default();
+    config.hfclk_source = HfclkSource::ExternalXtal;
+    config.lfclk_source = LfclkSource::ExternalXtal;
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "gpiote")] {
+            config.gpiote_interrupt_priority = hal::interrupt::Priority::P5;
+        }
     }
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "_time-driver")] {
+        config.time_interrupt_priority: hal::interrupt::Priority: P5;
+        }
+    }
+    config
 }
 
-#[cortex_m_rt::entry]
-fn main() -> ! {
-    rtt_init_print!();
-    let p = hal::pac::Peripherals::take().unwrap();
-    let port0 = hal::gpio::p0::Parts::new(p.P0);
-    let port1 = hal::gpio::p1::Parts::new(p.P1);
-    let button = port1.p1_06.into_pullup_input();
-    let mut led = port0.p0_12.into_push_pull_output(Level::Low);
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) -> ! {
+    let p = hal::init(config());
+    let button = gpio::Input::new(p.P1_06, gpio::Pull::Up);
+    let mut blue_led = gpio::Output::new(p.P0_12, gpio::Level::High, gpio::OutputDrive::Standard);
 
-    rprintln!("Blinky button demo starting");
     loop {
-        if button.is_high().unwrap() {
-            led.set_high().unwrap();
+        if button.is_high() {
+            blue_led.set_high();
         } else {
-            led.set_low().unwrap();
+            blue_led.set_low();
         }
     }
 }
