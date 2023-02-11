@@ -5,12 +5,15 @@ authors = ["Kesavan Yogeswaran"]
 edition = "2021"
 
 [dependencies]
+cfg-if = "1"
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
-panic-abort = "0.3"
-embassy-nrf = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "nrf52840"] }
-embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["nightly"] }
 embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = ["nightly"] }
+embassy-nrf = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "nrf52840", "unstable-pac", "time-driver-rtc1", "gpiote"] }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["nightly"] }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "generic-queue-8"] }
+embassy-usb = { git = "https://github.com/embassy-rs/embassy"}
 nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", features = ["nrf52840", "s113", "ble-gatt-server", "ble-peripheral", "critical-section-impl"] }
 nrf-softdevice-s113 = { git = "https://github.com/embassy-rs/nrf-softdevice" }
-cfg-if = "1.0.0"
+panic-abort = "0.3"
+static_cell = "1"
