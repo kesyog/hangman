@@ -11,6 +11,7 @@ cortex-m-rt = "0.7"
 defmt = { version = "0.3" }
 defmt-rtt = { version = "0.4" }
 embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = ["nightly"] }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
 embassy-nrf = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "nrf52840", "unstable-pac", "time-driver-rtc1", "gpiote", "defmt"] }
 embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "defmt"] }
 embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "generic-queue-8", "defmt"] }

@@ -9,26 +9,27 @@ use embassy_nrf::{
     gpio::{self, Output},
     interrupt,
     peripherals::{self, P0_06},
-    usb::{Driver, HardwareVbusDetect},
+    usb::{Driver, SoftwareVbusDetect},
 };
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::UsbDevice;
-use nrf_softdevice as _;
+use nrf_softdevice::{self as _, SocEvent, Softdevice};
 use panic_probe as _;
 use static_cell::StaticCell;
 
-// Note: HardwareVbusDetect is incompatible with the SoftDevice
-type MyDriver = Driver<'static, peripherals::USBD, HardwareVbusDetect>;
+type MyDriver = Driver<'static, peripherals::USBD, &'static SoftwareVbusDetect>;
 
 #[embassy_executor::task]
 async fn usb_task(mut device: UsbDevice<'static, MyDriver>) {
+    defmt::println!("Starting usb task");
     device.run().await;
 }
 
 #[embassy_executor::task]
 async fn echo_task(mut class: CdcAcmClass<'static, MyDriver>, mut led: Output<'static, P0_06>) {
     loop {
+        defmt::println!("Waiting for USB");
         class.wait_connection().await;
         led.set_high();
         defmt::println!("USB connected");
@@ -57,21 +58,63 @@ async fn echo(class: &mut CdcAcmClass<'static, MyDriver>) -> Result<(), Disconne
     }
 }
 
+#[embassy_executor::task]
+async fn softdevice_task(sd: &'static Softdevice, usb_detect: &'static SoftwareVbusDetect) -> ! {
+    defmt::println!("Starting softdevice task");
+    sd.run_with_callback(|event| {
+        defmt::println!("SD event: {}", event);
+        match event {
+            SocEvent::PowerUsbPowerReady => usb_detect.ready(),
+            SocEvent::PowerUsbDetected => usb_detect.detected(true),
+            SocEvent::PowerUsbRemoved => usb_detect.detected(false),
+            _ => (),
+        };
+    })
+    .await
+}
+
+fn setup_softdevice() -> &'static mut Softdevice {
+    use nrf_softdevice::raw;
+    let config = nrf_softdevice::Config {
+        clock: Some(raw::nrf_clock_lf_cfg_t {
+            source: raw::NRF_CLOCK_LF_SRC_XTAL as u8,
+            rc_ctiv: 0,
+            rc_temp_ctiv: 0,
+            accuracy: raw::NRF_CLOCK_LF_ACCURACY_500_PPM as u8,
+        }),
+        conn_gap: Some(raw::ble_gap_conn_cfg_t {
+            conn_count: 1,
+            event_length: 24,
+        }),
+        conn_gatt: Some(raw::ble_gatt_conn_cfg_t { att_mtu: 256 }),
+        gatts_attr_tab_size: Some(raw::ble_gatts_cfg_attr_tab_size_t {
+            attr_tab_size: 1024,
+        }),
+        gap_role_count: Some(raw::ble_gap_cfg_role_count_t {
+            adv_set_count: 1,
+            periph_role_count: 1,
+        }),
+        gap_device_name: Some(raw::ble_gap_cfg_device_name_t {
+            p_value: b"HelloKes" as *const u8 as _,
+            current_len: 8,
+            max_len: 8,
+            write_perm: unsafe { core::mem::zeroed() },
+            _bitfield_1: raw::ble_gap_cfg_device_name_t::new_bitfield_1(
+                raw::BLE_GATTS_VLOC_STACK as u8,
+            ),
+        }),
+        ..Default::default()
+    };
+    Softdevice::enable(&config)
+}
+
 fn config() -> Config {
     // Interrupt priority levels 0, 1, and 4 are reserved for the SoftDevice
     let mut config = Config::default();
     config.hfclk_source = HfclkSource::ExternalXtal;
     config.lfclk_source = LfclkSource::ExternalXtal;
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "gpiote")] {
-            config.gpiote_interrupt_priority = embassy_nrf::interrupt::Priority::P5;
-        }
-    }
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "_time-driver")] {
-        config.time_interrupt_priority: embassy_nrf::interrupt::Priority: P5;
-        }
-    }
+    config.gpiote_interrupt_priority = embassy_nrf::interrupt::Priority::P5;
+    config.time_interrupt_priority = embassy_nrf::interrupt::Priority::P5;
     config
 }
 
@@ -82,10 +125,19 @@ async fn main(spawner: Spawner) -> ! {
     let ld1 = gpio::Output::new(p.P0_06, gpio::Level::Low, gpio::OutputDrive::Standard);
 
     // USB setup
+    static USB_DETECT: StaticCell<SoftwareVbusDetect> = StaticCell::new();
+    // Hack: pretend USB is already connected. not a bad assumption since this is a dongle
+    // There might be a race condition at startup between USB init and SD init.
+    let usb_detect_ref = &*USB_DETECT.init(SoftwareVbusDetect::new(true, true));
+    let sd = setup_softdevice();
+    spawner.must_spawn(softdevice_task(sd, usb_detect_ref));
+
+    // It's recommended to start the SoftDevice before doing anything else
+    embassy_futures::yield_now().await;
+
     // Create the driver, from the HAL.
     let irq = interrupt::take!(USBD);
-    let power_irq = interrupt::take!(POWER_CLOCK);
-    let driver = Driver::new(p.USBD, irq, HardwareVbusDetect::new(power_irq));
+    let driver = Driver::new(p.USBD, irq, usb_detect_ref);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
