@@ -8,12 +8,20 @@ edition = "2021"
 cfg-if = "1"
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
+defmt = { version = "0.3" }
+defmt-rtt = { version = "0.4" }
 embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = ["nightly"] }
-embassy-nrf = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "nrf52840", "unstable-pac", "time-driver-rtc1", "gpiote"] }
-embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["nightly"] }
-embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "generic-queue-8"] }
-embassy-usb = { git = "https://github.com/embassy-rs/embassy"}
-nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", features = ["nrf52840", "s113", "ble-gatt-server", "ble-peripheral", "critical-section-impl"] }
+embassy-nrf = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "nrf52840", "unstable-pac", "time-driver-rtc1", "gpiote", "defmt"] }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "defmt"] }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "generic-queue-8", "defmt"] }
+embassy-usb = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"]}
+nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", features = ["nrf52840", "s113", "ble-gatt-server", "ble-peripheral", "critical-section-impl", "defmt"] }
 nrf-softdevice-s113 = { git = "https://github.com/embassy-rs/nrf-softdevice" }
-panic-abort = "0.3"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+rtt-target = { version = "0.3", features = ["cortex-m"] }
 static_cell = "1"
+
+[profile.release]
+# 1 minimum for backtraces?
+# 2 allows for location information for each defmt print
+debug = 2

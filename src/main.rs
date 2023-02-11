@@ -2,6 +2,7 @@
 #![no_std]
 #![feature(type_alias_impl_trait)]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::{
     config::{Config, HfclkSource, LfclkSource},
@@ -14,7 +15,7 @@ use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::UsbDevice;
 use nrf_softdevice as _;
-use panic_abort as _;
+use panic_probe as _;
 use static_cell::StaticCell;
 
 // Note: HardwareVbusDetect is incompatible with the SoftDevice
@@ -30,7 +31,9 @@ async fn echo_task(mut class: CdcAcmClass<'static, MyDriver>, mut led: Output<'s
     loop {
         class.wait_connection().await;
         led.set_high();
+        defmt::println!("USB connected");
         let _ = echo(&mut class).await;
+        defmt::println!("USB disconnected");
     }
 }
 
@@ -74,6 +77,7 @@ fn config() -> Config {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
+    defmt::println!("Start!");
     let p = embassy_nrf::init(config());
     let ld1 = gpio::Output::new(p.P0_06, gpio::Level::Low, gpio::OutputDrive::Standard);
 
@@ -140,6 +144,7 @@ async fn main(spawner: Spawner) -> ! {
     loop {
         button.wait_for_falling_edge().await;
         let led_state: bool = blue_led.get_output_level().into();
+        defmt::println!("button");
         blue_led.set_level((!led_state).into());
     }
 }
