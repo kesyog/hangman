@@ -5,8 +5,9 @@ MEMORY
   /* MBR + SoftDevice S113 7.2.0 are 0x1C000 bytes (see SoftDevice release notes) and start at 0x0 */
   /* Bootloader starts at 0xE0000 */
   FLASH : ORIGIN = 0x1C000, LENGTH = 0xE0000 - 0x1C000
-  /* MBR + SoftDevice require some amount of RAM, minimum 0x1198 bytes = 4.4kB. Let's just give them 10K for now. */
-  RAM : ORIGIN = 0x20000000 + 10K, LENGTH = 256K - 10K
+  /* MBR + SoftDevice require some amount of RAM. It'll tell us at boot (via logs) what the right
+  value is */
+  RAM : ORIGIN = 0x20000000 + 15224, LENGTH = 256K - 15224
 }
 
 /* This is where the call stack will be allocated. */

@@ -17,10 +17,10 @@ embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["nig
 embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "generic-queue-8", "defmt"] }
 embassy-usb = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"]}
 nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", features = ["nrf52840", "s113", "ble-gatt-server", "ble-peripheral", "critical-section-impl", "defmt"] }
-nrf-softdevice-s113 = { git = "https://github.com/embassy-rs/nrf-softdevice" }
+once_cell = { version = "1.17", default-features = false, features = ["critical-section"] }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
-rtt-target = { version = "0.3", features = ["cortex-m"] }
 static_cell = "1"
+zerocopy = "0.6"
 
 [profile.release]
 # 1 minimum for backtraces?
