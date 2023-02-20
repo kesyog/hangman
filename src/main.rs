@@ -3,6 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 mod gatt;
+mod weight;
 
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -13,6 +14,7 @@ use embassy_nrf::{
     peripherals::{self, P0_06},
     usb::{Driver, SoftwareVbusDetect},
 };
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::UsbDevice;
@@ -29,11 +31,10 @@ async fn usb_task(mut device: UsbDevice<'static, MyDriver>) {
 }
 
 #[embassy_executor::task]
-async fn echo_task(mut class: CdcAcmClass<'static, MyDriver>, mut led: Output<'static, P0_06>) {
+async fn echo_task(mut class: CdcAcmClass<'static, MyDriver>) {
     loop {
         defmt::println!("Waiting for USB");
         class.wait_connection().await;
-        led.set_high();
         defmt::println!("USB connected");
         let _ = echo(&mut class).await;
         defmt::println!("USB disconnected");
@@ -124,7 +125,8 @@ fn config() -> Config {
 async fn main(spawner: Spawner) -> ! {
     defmt::println!("Start!");
     let p = embassy_nrf::init(config());
-    let ld1 = gpio::Output::new(p.P0_06, gpio::Level::Low, gpio::OutputDrive::Standard);
+    let mut led1 = gpio::Output::new(p.P0_06, gpio::Level::Low, gpio::OutputDrive::Standard);
+    let blue_led = gpio::Output::new(p.P0_12, gpio::Level::Low, gpio::OutputDrive::Standard);
 
     // USB setup
     static USB_DETECT: StaticCell<SoftwareVbusDetect> = StaticCell::new();
@@ -132,7 +134,7 @@ async fn main(spawner: Spawner) -> ! {
     // There might be a race condition at startup between USB init and SD init.
     let usb_detect_ref = &*USB_DETECT.init(SoftwareVbusDetect::new(true, true));
     let sd = setup_softdevice();
-    let gatt_server = gatt::Server::new(sd).unwrap();
+    gatt::server::init(sd).unwrap();
     spawner.must_spawn(softdevice_task(sd, usb_detect_ref));
 
     // It's recommended to start the SoftDevice before doing anything else
@@ -190,17 +192,23 @@ async fn main(spawner: Spawner) -> ! {
 
     // Build the builder.
     let usb = builder.build();
+
+    static GATT_MEASUREMENT_CHANNEL: StaticCell<Channel<NoopRawMutex, weight::Command, 1>> =
+        StaticCell::new();
+    let ch = GATT_MEASUREMENT_CHANNEL.init(Channel::new());
+
+    // Start tasks
     spawner.must_spawn(usb_task(usb));
-    spawner.must_spawn(echo_task(class, ld1));
-    spawner.must_spawn(gatt::adv_task(sd, gatt_server));
+    spawner.must_spawn(echo_task(class));
+    spawner.must_spawn(gatt::ble_task(sd, ch.sender()));
+    spawner.must_spawn(weight::measure_task(sd, ch.receiver()));
 
     let mut button = gpio::Input::new(p.P1_06, gpio::Pull::Up);
-    let mut blue_led = gpio::Output::new(p.P0_12, gpio::Level::Low, gpio::OutputDrive::Standard);
 
     loop {
         button.wait_for_falling_edge().await;
-        let led_state: bool = blue_led.get_output_level().into();
+        let led_state: bool = led1.get_output_level().into();
         defmt::println!("button");
-        blue_led.set_level((!led_state).into());
+        led1.set_level((!led_state).into());
     }
 }

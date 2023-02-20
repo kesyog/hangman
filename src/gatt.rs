@@ -1,8 +1,15 @@
-use embassy_time::{Duration, Timer};
+use crate::weight::Command as WeightCommand;
+use defmt::Format;
+use embassy_futures::block_on;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::channel::Sender;
+use nrf_softdevice::ble::gatt_server::NotifyValueError;
 use nrf_softdevice::ble::peripheral::AdvertiseError;
 use nrf_softdevice::ble::{gatt_server, Connection, GattValue};
 use nrf_softdevice::{ble, raw as raw_sd, Softdevice};
 use zerocopy::{AsBytes, FromBytes};
+
+type MeasureChannel = Sender<'static, NoopRawMutex, WeightCommand, 1>;
 
 #[rustfmt::skip]
 const ADVERTISING_DATA: &[u8] = &[
@@ -21,6 +28,23 @@ const SCAN_RESPONSE_DATA: &[u8] = &[
     0x57, 0xad, 0xfe, 0x4f, 0xd3, 0x13, 0xcc, 0x9d, 0xc9, 0x40, 0xa6, 0x1e, 0x01, 0x17, 0x4e, 0x7e,
 ];
 
+pub mod server {
+    use super::Server;
+    use nrf_softdevice::Softdevice;
+    use once_cell::sync::OnceCell;
+
+    static GATT_SERVER: OnceCell<Server> = OnceCell::new();
+
+    pub fn init(sd: &mut Softdevice) -> Result<(), ()> {
+        GATT_SERVER.set(Server::new(sd).unwrap()).map_err(|_| ())
+    }
+
+    pub(super) fn get() -> &'static Server {
+        GATT_SERVER.get().expect("GATT_SERVER to be initialized")
+    }
+}
+
+#[derive(Copy, Clone, Format)]
 pub enum DataOpcode {
     BatteryVoltage(u32),
     Weight(f32, u32),
@@ -80,7 +104,7 @@ impl From<DataOpcode> for DataPoint {
 
 impl GattValue for DataPoint {
     const MIN_SIZE: usize = 2;
-    const MAX_SIZE: usize = 2;
+    const MAX_SIZE: usize = 10;
 
     fn from_gatt(data: &[u8]) -> Self {
         if data.len() < 2 {
@@ -102,7 +126,7 @@ impl GattValue for DataPoint {
     }
 }
 
-#[derive(defmt::Format)]
+#[derive(Copy, Clone, Format)]
 pub enum ControlOpcode {
     Tare = 0x64,
     StartMeasurement = 0x65,
@@ -157,7 +181,7 @@ impl GattValue for ControlPoint {
 }
 
 #[nrf_softdevice::gatt_service(uuid = "7e4e1701-1ea6-40c9-9dcc-13d34ffead57")]
-pub struct ProgressorService {
+struct ProgressorService {
     #[characteristic(uuid = "7e4e1702-1ea6-40c9-9dcc-13d34ffead57", notify)]
     data: DataPoint,
 
@@ -170,12 +194,17 @@ pub struct ProgressorService {
 }
 
 #[nrf_softdevice::gatt_server]
-pub struct Server {
-    pub progressor: ProgressorService,
+struct Server {
+    progressor: ProgressorService,
+}
+
+pub fn notify_data(data: DataOpcode, connection: &Connection) -> Result<(), NotifyValueError> {
+    let raw_data = DataPoint::from(data);
+    server::get().progressor.data_notify(connection, &raw_data)
 }
 
 // not really gatt. oops
-pub async fn advertise(sd: &Softdevice) -> Result<Connection, AdvertiseError> {
+async fn advertise(sd: &Softdevice) -> Result<Connection, AdvertiseError> {
     let config = ble::peripheral::Config::default();
     let adv = ble::peripheral::ConnectableAdvertisement::ScannableUndirected {
         adv_data: ADVERTISING_DATA,
@@ -184,17 +213,29 @@ pub async fn advertise(sd: &Softdevice) -> Result<Connection, AdvertiseError> {
     ble::peripheral::advertise_connectable(sd, adv, &config).await
 }
 
-// Just for testing
 #[embassy_executor::task]
-pub async fn adv_task(sd: &'static Softdevice, server: Server) {
+pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel) {
+    defmt::println!("starting BLE task");
+    let server = server::get();
     loop {
         let conn = advertise(sd).await.unwrap();
         defmt::println!("Connected");
 
-        let res = gatt_server::run(&conn, &server, |e| match e {
+        let res = gatt_server::run(&conn, server, |e| match e {
             ServerEvent::Progressor(e) => match e {
                 ProgressorServiceEvent::ControlWrite(val) => {
-                    defmt::info!("ControlWrite: {:?}", ControlOpcode::try_from(val));
+                    let control_op = ControlOpcode::try_from(val);
+                    defmt::info!("ControlWrite: {:?}", control_op);
+                    match control_op {
+                        Ok(ControlOpcode::Tare) => block_on(measure_ch.send(WeightCommand::Tare)),
+                        Ok(ControlOpcode::StartMeasurement) => {
+                            block_on(measure_ch.send(WeightCommand::StartMeasurement(conn.clone())))
+                        }
+                        Ok(ControlOpcode::StopMeasurement) => {
+                            block_on(measure_ch.send(WeightCommand::StopMeasurement))
+                        }
+                        _ => (),
+                    }
                 }
                 ProgressorServiceEvent::DataCccdWrite { notifications } => {
                     defmt::info!("DataCccdWrite: {}", notifications);

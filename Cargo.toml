@@ -19,6 +19,7 @@ embassy-usb = { git = "https://github.com/embassy-rs/embassy", features = ["defm
 nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", features = ["nrf52840", "s113", "ble-gatt-server", "ble-peripheral", "critical-section-impl", "defmt"] }
 once_cell = { version = "1.17", default-features = false, features = ["critical-section"] }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
+rand = { version = "0.8", default-features = false, features = ["nightly"] }
 static_cell = "1"
 zerocopy = "0.6"
 
