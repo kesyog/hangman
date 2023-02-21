@@ -1,6 +1,6 @@
 use crate::weight::Command as WeightCommand;
+use crate::MEASURE_COMMAND_CHANNEL_SIZE;
 use defmt::Format;
-use embassy_futures::block_on;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Sender;
 use nrf_softdevice::ble::gatt_server::NotifyValueError;
@@ -9,7 +9,7 @@ use nrf_softdevice::ble::{gatt_server, Connection, GattValue};
 use nrf_softdevice::{ble, raw as raw_sd, Softdevice};
 use zerocopy::{AsBytes, FromBytes};
 
-type MeasureChannel = Sender<'static, NoopRawMutex, WeightCommand, 1>;
+type MeasureChannel = Sender<'static, NoopRawMutex, WeightCommand, MEASURE_COMMAND_CHANNEL_SIZE>;
 
 #[rustfmt::skip]
 const ADVERTISING_DATA: &[u8] = &[
@@ -218,21 +218,38 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel) {
     defmt::println!("starting BLE task");
     let server = server::get();
     loop {
+        crate::leds::singleton_get().lock().await.rgb_blue.set_low();
         let conn = advertise(sd).await.unwrap();
         defmt::println!("Connected");
+        {
+            let mut leds = crate::leds::singleton_get().lock().await;
+            leds.rgb_blue.set_high();
+            leds.green.set_low();
+        }
 
         let res = gatt_server::run(&conn, server, |e| match e {
             ServerEvent::Progressor(e) => match e {
                 ProgressorServiceEvent::ControlWrite(val) => {
                     let control_op = ControlOpcode::try_from(val);
-                    defmt::info!("ControlWrite: {:?}", control_op);
+                    defmt::info!("ControlWrite: {}", control_op);
                     match control_op {
-                        Ok(ControlOpcode::Tare) => block_on(measure_ch.send(WeightCommand::Tare)),
+                        Ok(ControlOpcode::Tare) => {
+                            if measure_ch.try_send(WeightCommand::Tare).is_err() {
+                                defmt::error!("Failed to send Tare");
+                            }
+                        }
                         Ok(ControlOpcode::StartMeasurement) => {
-                            block_on(measure_ch.send(WeightCommand::StartMeasurement(conn.clone())))
+                            if measure_ch
+                                .try_send(WeightCommand::StartMeasurement(conn.clone()))
+                                .is_err()
+                            {
+                                defmt::error!("Failed to send StartMeasurement");
+                            }
                         }
                         Ok(ControlOpcode::StopMeasurement) => {
-                            block_on(measure_ch.send(WeightCommand::StopMeasurement))
+                            if measure_ch.try_send(WeightCommand::StopMeasurement).is_err() {
+                                defmt::error!("Failed to send StopMeasurement");
+                            }
                         }
                         _ => (),
                     }
@@ -243,8 +260,12 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel) {
             },
         })
         .await;
+        crate::leds::singleton_get().lock().await.green.set_high();
+        // Make sure we stop measuring on disconnect
+        measure_ch.send(WeightCommand::StopMeasurement).await;
 
         if let Err(e) = res {
+            // Adds ~1kB of ROM usage
             defmt::info!("gatt_server exited with error: {:?}", e);
         }
     }

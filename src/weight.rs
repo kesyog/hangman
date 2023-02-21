@@ -1,18 +1,25 @@
 use core::num::NonZeroU32;
 
 use crate::gatt::DataOpcode;
-use embassy_futures::select::{select, Either};
+use crate::{WeightAdc, MEASURE_COMMAND_CHANNEL_SIZE};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Receiver;
+use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
+use fix_hidden_lifetime_bug::fix_hidden_lifetime_bug;
 use nrf_softdevice::ble::Connection;
 use nrf_softdevice::Softdevice;
 use once_cell::sync::Lazy;
 use rand::RngCore;
 
-const SAMPLING_INTERVAL: Duration = Duration::from_hz(80);
+// yellow CLK 0.20
+// orange DATA 0.17
+const SAMPLING_INTERVAL: Duration = Duration::from_hz(10);
+const DEFAULT_CALIBRATION_M: f32 = 0.0000021950245;
+const DEFAULT_CALIBRATION_B: i32 = 92554;
 
-type ReceiveChannel = Receiver<'static, NoopRawMutex, Command, 1>;
+type ReceiveChannel = Receiver<'static, NoopRawMutex, Command, MEASURE_COMMAND_CHANNEL_SIZE>;
+type ProtectedAdc = Mutex<NoopRawMutex, &'static mut WeightAdc>;
 
 pub enum Command {
     StartMeasurement(Connection),
@@ -36,40 +43,73 @@ enum MeasurementState {
     Active(Connection, Instant),
 }
 
+#[derive(Copy, Clone)]
+struct Calibration {
+    m: f32,
+    b: i32,
+}
+
+impl Default for Calibration {
+    fn default() -> Self {
+        Self {
+            m: DEFAULT_CALIBRATION_M,
+            b: DEFAULT_CALIBRATION_B,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct MeasurementContext {
     state: MeasurementState,
     offset: f32,
+    calibration: Calibration,
 }
 
-async fn wait_for_command(
+async fn handle_command(
     rx: &ReceiveChannel,
     context: &MeasurementContext,
-    sd: &'static Softdevice,
+    adc: &ProtectedAdc,
 ) -> MeasurementContext {
     let mut context = context.clone();
-    let rx_cmd = rx.recv().await;
-    defmt::println!("measure received {}", rx_cmd);
+    let rx_cmd = rx.try_recv();
+    if rx_cmd.is_ok() {
+        defmt::println!("Measure task received {}", rx_cmd);
+    }
     match rx_cmd {
-        Command::StartMeasurement(connection) => {
+        Ok(Command::StartMeasurement(connection)) => {
+            {
+                let mut leds = crate::leds::singleton_get().lock().await;
+                leds.rgb_red.set_low();
+            }
+            adc.lock().await.power_up();
             context.state = MeasurementState::Active(connection, Instant::now())
         }
-        Command::StopMeasurement => context.state = MeasurementState::Idle,
-        Command::Tare => {
-            let measurement = take_measurement(sd).await;
+        Ok(Command::StopMeasurement) => {
+            {
+                let mut leds = crate::leds::singleton_get().lock().await;
+                leds.rgb_red.set_high();
+            }
+            adc.lock().await.power_down();
+            context.state = MeasurementState::Idle
+        }
+        Ok(Command::Tare) => {
+            let measurement = take_measurement(adc, &context.calibration, context.offset).await;
             context.offset -= measurement;
         }
+        Err(_) => (),
     }
     context
 }
 
-async fn measure(context: &MeasurementContext, sd: &'static Softdevice) {
+// Workaround for Rust compiler bug
+// See https://github.com/danielhenrymantilla/fix_hidden_lifetime_bug.rs
+#[allow(clippy::manual_async_fn)]
+#[fix_hidden_lifetime_bug]
+async fn measure(context: &MeasurementContext, adc: &ProtectedAdc) {
     let MeasurementState::Active(ref connection, start_time) = context.state else {
-        // Sleep to give a chance for other tasks to run
-        Timer::after(Duration::from_millis(100)).await;
         return;
     };
-    let measurement = take_measurement(sd).await + context.offset;
+    let measurement = take_measurement(adc, &context.calibration, context.offset).await;
     let timestamp = Instant::now().duration_since(start_time).as_micros() as u32;
     if crate::gatt::notify_data(DataOpcode::Weight(measurement, timestamp), connection).is_err() {
         defmt::error!("Notify failed");
@@ -77,18 +117,22 @@ async fn measure(context: &MeasurementContext, sd: &'static Softdevice) {
 }
 
 #[embassy_executor::task]
-pub async fn measure_task(sd: &'static Softdevice, rx: ReceiveChannel) {
+pub async fn measure_task(rx: ReceiveChannel, adc: &'static mut WeightAdc) {
     defmt::println!("starting measurement task");
     let mut context = MeasurementContext {
         state: MeasurementState::Idle,
         offset: 0.0,
+        calibration: Calibration::default(),
     };
+    let adc: Mutex<NoopRawMutex, &mut WeightAdc> = Mutex::new(adc);
 
     loop {
-        let result = select(wait_for_command(&rx, &context, sd), measure(&context, sd)).await;
-        match result {
-            Either::First(new_ctx) => context = new_ctx,
-            Either::Second(_) => (),
+        context = handle_command(&rx, &context, &adc).await;
+        if let MeasurementState::Active(..) = context.state {
+            measure(&context, &adc).await;
+        } else {
+            // Sleep to give a chance for other tasks to run
+            Timer::after(Duration::from_millis(100)).await;
         }
     }
 }
@@ -117,7 +161,27 @@ impl<'a> RngCore for SoftDeviceRng<'a> {
     }
 }
 
-async fn take_measurement(sd: &'static Softdevice) -> f32 {
+async fn take_measurement(adc: &ProtectedAdc, calibration: &Calibration, offset: f32) -> f32 {
+    let mut adc = adc.lock().await;
+    if !adc.is_powered() {
+        adc.power_up();
+    }
+    let reading = adc.take_measurement().await.unwrap();
+    let adjusted = (reading + calibration.b) as f32 * calibration.m + offset;
+
+    defmt::debug!(
+        "raw={} offset={} calibration: ({} {}) adjusted={}",
+        reading,
+        offset,
+        calibration.m,
+        calibration.b,
+        adjusted,
+    );
+    adjusted
+}
+
+#[allow(unused)]
+async fn take_fake_measurement(sd: &'static Softdevice) -> f32 {
     use rand::Rng as _;
     let mut rng = SoftDeviceRng(sd);
 

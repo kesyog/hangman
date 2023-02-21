@@ -7,7 +7,8 @@ MEMORY
   FLASH : ORIGIN = 0x1C000, LENGTH = 0xE0000 - 0x1C000
   /* MBR + SoftDevice require some amount of RAM. It'll tell us at boot (via logs) what the right
   value is */
-  RAM : ORIGIN = 0x20000000 + 15224, LENGTH = 256K - 15224
+  /* Artificially constraining RAM to that of the smallest nRF52 chip */
+  RAM : ORIGIN = 0x20000000 + 15224, LENGTH = 24K - 15224
 }
 
 /* This is where the call stack will be allocated. */

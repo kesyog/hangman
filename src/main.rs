@@ -1,37 +1,46 @@
 #![no_main]
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 #![feature(type_alias_impl_trait)]
 
 mod gatt;
+mod hx711;
+mod leds;
 mod weight;
 
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::{
     config::{Config, HfclkSource, LfclkSource},
-    gpio::{self, Output},
-    interrupt,
-    peripherals::{self, P0_06},
+    gpio::{self, AnyPin},
+    interrupt, peripherals,
     usb::{Driver, SoftwareVbusDetect},
 };
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel};
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, mutex::Mutex};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::UsbDevice;
+use nrf52840_hal::Delay as SysTickDelay;
 use nrf_softdevice::{self as _, SocEvent, Softdevice};
 use panic_probe as _;
 use static_cell::StaticCell;
 
-type MyDriver = Driver<'static, peripherals::USBD, &'static SoftwareVbusDetect>;
+// Leave some room for multiple commands to be queued. If this is too small, we can get overwhelmed
+// and deadlock.
+const MEASURE_COMMAND_CHANNEL_SIZE: usize = 5;
+
+type UsbDriver = Driver<'static, peripherals::USBD, &'static SoftwareVbusDetect>;
+type WeightAdc = hx711::Hx711<'static, peripherals::P0_17, peripherals::P0_20>;
+type SharedDelay = Mutex<NoopRawMutex, SysTickDelay>;
+type MeasureCommandChannel = Channel<NoopRawMutex, weight::Command, MEASURE_COMMAND_CHANNEL_SIZE>;
 
 #[embassy_executor::task]
-async fn usb_task(mut device: UsbDevice<'static, MyDriver>) {
+async fn usb_task(mut device: UsbDevice<'static, UsbDriver>) {
     defmt::println!("Starting usb task");
     device.run().await;
 }
 
 #[embassy_executor::task]
-async fn echo_task(mut class: CdcAcmClass<'static, MyDriver>) {
+async fn echo_task(mut class: CdcAcmClass<'static, UsbDriver>) {
     loop {
         defmt::println!("Waiting for USB");
         class.wait_connection().await;
@@ -52,7 +61,7 @@ impl From<EndpointError> for Disconnected {
     }
 }
 
-async fn echo(class: &mut CdcAcmClass<'static, MyDriver>) -> Result<(), Disconnected> {
+async fn echo(class: &mut CdcAcmClass<'static, UsbDriver>) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
     loop {
         let n = class.read_packet(&mut buf).await?;
@@ -125,8 +134,31 @@ fn config() -> Config {
 async fn main(spawner: Spawner) -> ! {
     defmt::println!("Start!");
     let p = embassy_nrf::init(config());
-    let mut led1 = gpio::Output::new(p.P0_06, gpio::Level::Low, gpio::OutputDrive::Standard);
-    let blue_led = gpio::Output::new(p.P0_12, gpio::Level::Low, gpio::OutputDrive::Standard);
+    let syst = embassy_nrf::pac::CorePeripherals::take().unwrap().SYST;
+    static DELAY: StaticCell<Mutex<NoopRawMutex, SysTickDelay>> = StaticCell::new();
+    let delay: &'static SharedDelay = DELAY.init(Mutex::new(SysTickDelay::new(syst)));
+    let green_led = gpio::Output::new(
+        AnyPin::from(p.P0_06),
+        gpio::Level::High,
+        gpio::OutputDrive::Standard,
+    );
+    let rgb_red_led = gpio::Output::new(
+        AnyPin::from(p.P0_08),
+        gpio::Level::High,
+        gpio::OutputDrive::Standard,
+    );
+    let rgb_blue_led = gpio::Output::new(
+        AnyPin::from(p.P0_12),
+        gpio::Level::High,
+        gpio::OutputDrive::Standard,
+    );
+    leds::singleton_init(rgb_blue_led, rgb_red_led, green_led).unwrap();
+
+    let hx711_data = gpio::Input::new(p.P0_17, gpio::Pull::None);
+    // Set high initially to power down chip
+    let hx711_clock = gpio::Output::new(p.P0_20, gpio::Level::High, gpio::OutputDrive::Standard);
+    static HX711: StaticCell<WeightAdc> = StaticCell::new();
+    let hx711 = HX711.init(WeightAdc::new(hx711_data, hx711_clock, delay));
 
     // USB setup
     static USB_DETECT: StaticCell<SoftwareVbusDetect> = StaticCell::new();
@@ -193,22 +225,19 @@ async fn main(spawner: Spawner) -> ! {
     // Build the builder.
     let usb = builder.build();
 
-    static GATT_MEASUREMENT_CHANNEL: StaticCell<Channel<NoopRawMutex, weight::Command, 1>> =
-        StaticCell::new();
+    static GATT_MEASUREMENT_CHANNEL: StaticCell<MeasureCommandChannel> = StaticCell::new();
     let ch = GATT_MEASUREMENT_CHANNEL.init(Channel::new());
 
     // Start tasks
     spawner.must_spawn(usb_task(usb));
     spawner.must_spawn(echo_task(class));
     spawner.must_spawn(gatt::ble_task(sd, ch.sender()));
-    spawner.must_spawn(weight::measure_task(sd, ch.receiver()));
+    spawner.must_spawn(weight::measure_task(ch.receiver(), hx711));
 
     let mut button = gpio::Input::new(p.P1_06, gpio::Pull::Up);
 
     loop {
         button.wait_for_falling_edge().await;
-        let led_state: bool = led1.get_output_level().into();
         defmt::println!("button");
-        led1.set_level((!led_state).into());
     }
 }
