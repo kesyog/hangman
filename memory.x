@@ -27,4 +27,5 @@ MEMORY
 /* _stext = ORIGIN(FLASH) + 0x400; */
 
 /* Size of the heap (in bytes) */
+/* TODO: investigate further how to access this from application and whether it's actually used */
 /* _heap_size = 1024; */

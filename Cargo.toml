@@ -19,6 +19,7 @@ embassy-nrf = { git = "https://github.com/embassy-rs/embassy", features = ["nigh
 embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "defmt"] }
 embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "generic-queue-8", "defmt"] }
 embassy-usb = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"]}
+embedded-alloc = "0.5"
 embedded-storage = "0.3"
 embedded-storage-async = "0.3"
 fix-hidden-lifetime-bug = "0.2.5"

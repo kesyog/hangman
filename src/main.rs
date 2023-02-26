@@ -20,10 +20,17 @@ use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, mutex::M
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::UsbDevice;
+use embedded_alloc::Heap;
 use nrf52840_hal::Delay as SysTickDelay;
 use nrf_softdevice::{self as _, SocEvent, Softdevice};
 use panic_probe as _;
 use static_cell::StaticCell;
+
+#[global_allocator]
+/// Create a small heap. Not sure how to pass around closures without one.
+static HEAP: Heap = Heap::empty();
+// TODO: how to enforce this in the linker script?
+const HEAP_SIZE: usize = 1024;
 
 // Leave some room for multiple commands to be queued. If this is too small, we can get overwhelmed
 // and deadlock.
@@ -134,6 +141,9 @@ fn config() -> Config {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
     defmt::println!("Start!");
+    unsafe {
+        HEAP.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE);
+    }
     let p = embassy_nrf::init(config());
     let syst = embassy_nrf::pac::CorePeripherals::take().unwrap().SYST;
     static DELAY: StaticCell<Mutex<NoopRawMutex, SysTickDelay>> = StaticCell::new();
