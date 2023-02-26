@@ -5,6 +5,7 @@
 mod gatt;
 mod hx711;
 mod leds;
+mod nonvolatile;
 mod weight;
 
 use defmt_rtt as _;
@@ -35,18 +36,18 @@ type MeasureCommandChannel = Channel<NoopRawMutex, weight::Command, MEASURE_COMM
 
 #[embassy_executor::task]
 async fn usb_task(mut device: UsbDevice<'static, UsbDriver>) {
-    defmt::println!("Starting usb task");
+    defmt::info!("Starting usb task");
     device.run().await;
 }
 
 #[embassy_executor::task]
 async fn echo_task(mut class: CdcAcmClass<'static, UsbDriver>) {
     loop {
-        defmt::println!("Waiting for USB");
+        defmt::debug!("Waiting for USB");
         class.wait_connection().await;
-        defmt::println!("USB connected");
+        defmt::debug!("USB connected");
         let _ = echo(&mut class).await;
-        defmt::println!("USB disconnected");
+        defmt::debug!("USB disconnected");
     }
 }
 
@@ -72,9 +73,9 @@ async fn echo(class: &mut CdcAcmClass<'static, UsbDriver>) -> Result<(), Disconn
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice, usb_detect: &'static SoftwareVbusDetect) -> ! {
-    defmt::println!("Starting softdevice task");
+    defmt::info!("Starting softdevice task");
     sd.run_with_callback(|event| {
-        defmt::println!("SD event: {}", event);
+        defmt::debug!("SD event: {}", event);
         match event {
             SocEvent::PowerUsbPowerReady => usb_detect.ready(),
             SocEvent::PowerUsbDetected => usb_detect.detected(true),
@@ -232,12 +233,12 @@ async fn main(spawner: Spawner) -> ! {
     spawner.must_spawn(usb_task(usb));
     spawner.must_spawn(echo_task(class));
     spawner.must_spawn(gatt::ble_task(sd, ch.sender()));
-    spawner.must_spawn(weight::measure_task(ch.receiver(), hx711));
+    spawner.must_spawn(weight::measure_task(ch.receiver(), hx711, sd));
 
     let mut button = gpio::Input::new(p.P1_06, gpio::Pull::Up);
 
     loop {
         button.wait_for_falling_edge().await;
-        defmt::println!("button");
+        defmt::debug!("button press");
     }
 }

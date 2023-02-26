@@ -1,6 +1,7 @@
 use core::num::NonZeroU32;
 
 use crate::gatt::DataOpcode;
+use crate::nonvolatile::{Nvm, RegisterRead};
 use crate::{WeightAdc, MEASURE_COMMAND_CHANNEL_SIZE};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Receiver;
@@ -15,8 +16,8 @@ use rand::RngCore;
 // yellow CLK 0.20
 // orange DATA 0.17
 const SAMPLING_INTERVAL: Duration = Duration::from_hz(10);
-const DEFAULT_CALIBRATION_M: f32 = 0.0000021950245;
-const DEFAULT_CALIBRATION_B: i32 = 92554;
+pub const DEFAULT_CALIBRATION_M: f32 = 0.0000021950245;
+pub const DEFAULT_CALIBRATION_B: i32 = 92554;
 
 type ReceiveChannel = Receiver<'static, NoopRawMutex, Command, MEASURE_COMMAND_CHANNEL_SIZE>;
 type ProtectedAdc = Mutex<NoopRawMutex, &'static mut WeightAdc>;
@@ -73,7 +74,7 @@ async fn handle_command(
     let mut context = context.clone();
     let rx_cmd = rx.try_recv();
     if rx_cmd.is_ok() {
-        defmt::println!("Measure task received {}", rx_cmd);
+        defmt::debug!("Measure task received {}", rx_cmd);
     }
     match rx_cmd {
         Ok(Command::StartMeasurement(connection)) => {
@@ -117,12 +118,22 @@ async fn measure(context: &MeasurementContext, adc: &ProtectedAdc) {
 }
 
 #[embassy_executor::task]
-pub async fn measure_task(rx: ReceiveChannel, adc: &'static mut WeightAdc) {
-    defmt::println!("starting measurement task");
+pub async fn measure_task(
+    rx: ReceiveChannel,
+    adc: &'static mut WeightAdc,
+    sd: &'static Softdevice,
+) {
+    defmt::info!("Starting measurement task");
+    let nvm = Nvm::new(sd);
+    let calibration = Calibration {
+        m: f32::from_le_bytes(nvm.read(RegisterRead::CalibrationM)),
+        b: i32::from_le_bytes(nvm.read(RegisterRead::CalibrationB)),
+    };
+    defmt::info!("Calibration: m={} b={}", calibration.m, calibration.b);
     let mut context = MeasurementContext {
         state: MeasurementState::Idle,
         offset: 0.0,
-        calibration: Calibration::default(),
+        calibration,
     };
     let adc: Mutex<NoopRawMutex, &mut WeightAdc> = Mutex::new(adc);
 

@@ -4,7 +4,9 @@ MEMORY
   /* NOTE K = KiBi = 1024 bytes */
   /* MBR + SoftDevice S113 7.2.0 are 0x1C000 bytes (see SoftDevice release notes) and start at 0x0 */
   /* Bootloader starts at 0xE0000 */
-  FLASH : ORIGIN = 0x1C000, LENGTH = 0xE0000 - 0x1C000
+  FLASH : ORIGIN = 0x1C000, LENGTH = 0xE0000 - 0x1C000 
+  /* Reserve one 4kB page of flash for constants */
+  USER_CONSTANTS (r) : ORIGIN = 0xDF000, LENGTH = 0xE0000 - 0xDF000
   /* MBR + SoftDevice require some amount of RAM. It'll tell us at boot (via logs) what the right
   value is */
   /* Artificially constraining RAM to that of the smallest nRF52 chip */

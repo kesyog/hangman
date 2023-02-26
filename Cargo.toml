@@ -5,9 +5,11 @@ authors = ["Kesavan Yogeswaran"]
 edition = "2021"
 
 [dependencies]
+bytemuck = "1"
 cfg-if = "1"
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
+crc = "3"
 critical-section = "1"
 defmt = { version = "0.3" }
 defmt-rtt = { version = "0.4" }
@@ -17,6 +19,8 @@ embassy-nrf = { git = "https://github.com/embassy-rs/embassy", features = ["nigh
 embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "defmt"] }
 embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "generic-queue-8", "defmt"] }
 embassy-usb = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"]}
+embedded-storage = "0.3"
+embedded-storage-async = "0.3"
 fix-hidden-lifetime-bug = "0.2.5"
 nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", features = ["nrf52840", "s113", "ble-gatt-server", "ble-peripheral", "critical-section-impl", "defmt"] }
 nrf52840-hal = { version = "0.16.0", default-features = false }
@@ -24,6 +28,8 @@ once_cell = { version = "1.17", default-features = false, features = ["critical-
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 rand = { version = "0.8", default-features = false, features = ["nightly"] }
 static_cell = "1"
+strum = { version = "0.24", default-features = false, features = ["derive"] }
+strum_macros = "0.24"
 zerocopy = "0.6"
 
 [profile.release]

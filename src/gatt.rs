@@ -215,12 +215,12 @@ async fn advertise(sd: &Softdevice) -> Result<Connection, AdvertiseError> {
 
 #[embassy_executor::task]
 pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel) {
-    defmt::println!("starting BLE task");
+    defmt::info!("Starting BLE task");
     let server = server::get();
     loop {
         crate::leds::singleton_get().lock().await.rgb_blue.set_low();
         let conn = advertise(sd).await.unwrap();
-        defmt::println!("Connected");
+        defmt::info!("Peer connected");
         {
             let mut leds = crate::leds::singleton_get().lock().await;
             leds.rgb_blue.set_high();
