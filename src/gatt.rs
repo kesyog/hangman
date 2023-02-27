@@ -1,5 +1,8 @@
+extern crate alloc;
+
 use crate::weight::Command as WeightCommand;
 use crate::MEASURE_COMMAND_CHANNEL_SIZE;
+use alloc::rc::Rc;
 use defmt::Format;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Sender;
@@ -239,8 +242,21 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel) {
                             }
                         }
                         Ok(ControlOpcode::StartMeasurement) => {
+                            let notify_cb = Rc::new({
+                                let conn = conn.clone();
+                                move |timestamp: u32, measurement: f32| {
+                                    if notify_data(
+                                        DataOpcode::Weight(measurement, timestamp),
+                                        &conn,
+                                    )
+                                    .is_err()
+                                    {
+                                        defmt::error!("Notify failed");
+                                    }
+                                }
+                            });
                             if measure_ch
-                                .try_send(WeightCommand::StartMeasurement(conn.clone()))
+                                .try_send(WeightCommand::StartMeasurement(notify_cb))
                                 .is_err()
                             {
                                 defmt::error!("Failed to send StartMeasurement");

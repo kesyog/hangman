@@ -1,14 +1,14 @@
-use core::num::NonZeroU32;
+extern crate alloc;
 
-use crate::gatt::DataOpcode;
 use crate::nonvolatile::{Nvm, RegisterRead};
 use crate::{WeightAdc, MEASURE_COMMAND_CHANNEL_SIZE};
+use alloc::rc::Rc;
+use core::num::NonZeroU32;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Receiver;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
 use fix_hidden_lifetime_bug::fix_hidden_lifetime_bug;
-use nrf_softdevice::ble::Connection;
 use nrf_softdevice::Softdevice;
 use once_cell::sync::Lazy;
 use rand::RngCore;
@@ -21,9 +21,11 @@ pub const DEFAULT_CALIBRATION_B: i32 = 92554;
 
 type ReceiveChannel = Receiver<'static, NoopRawMutex, Command, MEASURE_COMMAND_CHANNEL_SIZE>;
 type ProtectedAdc = Mutex<NoopRawMutex, &'static mut WeightAdc>;
+type OnMeasurementCb = dyn Fn(u32, f32);
 
 pub enum Command {
-    StartMeasurement(Connection),
+    /// Start measuring continuously
+    StartMeasurement(Rc<OnMeasurementCb>),
     StopMeasurement,
     Tare,
 }
@@ -41,7 +43,7 @@ impl defmt::Format for Command {
 #[derive(Clone)]
 enum MeasurementState {
     Idle,
-    Active(Connection, Instant),
+    Active(Rc<OnMeasurementCb>, Instant),
 }
 
 #[derive(Copy, Clone)]
@@ -77,13 +79,13 @@ async fn handle_command(
         defmt::debug!("Measure task received {}", rx_cmd);
     }
     match rx_cmd {
-        Ok(Command::StartMeasurement(connection)) => {
+        Ok(Command::StartMeasurement(measurement_cb)) => {
             {
                 let mut leds = crate::leds::singleton_get().lock().await;
                 leds.rgb_red.set_low();
             }
             adc.lock().await.power_up();
-            context.state = MeasurementState::Active(connection, Instant::now())
+            context.state = MeasurementState::Active(measurement_cb, Instant::now())
         }
         Ok(Command::StopMeasurement) => {
             {
@@ -107,14 +109,12 @@ async fn handle_command(
 #[allow(clippy::manual_async_fn)]
 #[fix_hidden_lifetime_bug]
 async fn measure(context: &MeasurementContext, adc: &ProtectedAdc) {
-    let MeasurementState::Active(ref connection, start_time) = context.state else {
+    let MeasurementState::Active(ref measurement_cb, start_time) = context.state else {
         return;
     };
     let measurement = take_measurement(adc, &context.calibration, context.offset).await;
     let timestamp = Instant::now().duration_since(start_time).as_micros() as u32;
-    if crate::gatt::notify_data(DataOpcode::Weight(measurement, timestamp), connection).is_err() {
-        defmt::error!("Notify failed");
-    };
+    measurement_cb(timestamp, measurement);
 }
 
 #[embassy_executor::task]
