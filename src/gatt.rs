@@ -148,6 +148,13 @@ pub enum ControlOpcode {
     Tare = 0x64,
     StartMeasurement = 0x65,
     StopMeasurement = 0x66,
+    StartPeakRfdMeasurement = 0x67,
+    StartPeakRfdMeasurementSeries = 0x68,
+    AddCalibrationPoint = 0x69,
+    SaveCalibration = 0x6A,
+    GetAppVersion = 0x6B,
+    GetErrorInfo = 0x6C,
+    ClearErrorInfo = 0x6D,
     Shutdown = 0x6E,
     SampleBattery = 0x6F,
 }
@@ -171,11 +178,19 @@ impl From<ControlOpcode> for ControlPoint {
 impl TryFrom<ControlPoint> for ControlOpcode {
     type Error = u8;
 
+    // TODO: can we derive this?
     fn try_from(value: ControlPoint) -> Result<Self, Self::Error> {
         match value.opcode {
             0x64 => Ok(ControlOpcode::Tare),
             0x65 => Ok(ControlOpcode::StartMeasurement),
             0x66 => Ok(ControlOpcode::StopMeasurement),
+            0x67 => Ok(ControlOpcode::StartPeakRfdMeasurement),
+            0x68 => Ok(ControlOpcode::StartPeakRfdMeasurementSeries),
+            0x69 => Ok(ControlOpcode::AddCalibrationPoint),
+            0x6A => Ok(ControlOpcode::SaveCalibration),
+            0x6B => Ok(ControlOpcode::GetAppVersion),
+            0x6C => Ok(ControlOpcode::GetErrorInfo),
+            0x6D => Ok(ControlOpcode::ClearErrorInfo),
             0x6E => Ok(ControlOpcode::Shutdown),
             0x6F => Ok(ControlOpcode::SampleBattery),
             other => Err(other),
@@ -244,11 +259,14 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel) {
             leds.green.set_low();
         }
 
-        let disconnected = gatt_server::run(&conn, server, |e| match e {
+        gatt_server::run(&conn, server, |e| match e {
             ServerEvent::Progressor(e) => match e {
                 ProgressorServiceEvent::ControlWrite(val) => {
                     let control_op = ControlOpcode::try_from(val);
-                    defmt::info!("ControlWrite: {}", control_op);
+                    match control_op {
+                        Ok(op) => defmt::info!("ProgressorService.ControlWrite: {}", op),
+                        Err(op) => defmt::info!("ProgressorService.ControlWrite: 0x{:02X}", op),
+                    }
                     match control_op {
                         Ok(ControlOpcode::Tare) => {
                             if measure_ch.try_send(WeightCommand::Tare).is_err() {
