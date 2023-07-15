@@ -13,7 +13,7 @@ crc = "3"
 critical-section = "1"
 defmt = { version = "0.3" }
 defmt-rtt = { version = "0.4" }
-embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = ["nightly"] }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = ["arch-cortex-m", "defmt", "nightly", "executor-thread"] }
 embassy-futures = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
 embassy-nrf = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "nrf52840", "unstable-pac", "time-driver-rtc1", "gpiote", "defmt"] }
 embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "defmt"] }
@@ -21,16 +21,16 @@ embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["nig
 embassy-usb = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"]}
 embedded-alloc = "0.5"
 embedded-storage = "0.3"
-embedded-storage-async = "0.3"
+embedded-storage-async = "0.4"
 fix-hidden-lifetime-bug = "0.2.5"
-nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", features = ["nrf52840", "s113", "ble-gatt-server", "ble-peripheral", "critical-section-impl", "defmt"] }
+nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", features = ["nrf52840", "s113", "ble-gatt-server", "ble-peripheral", "critical-section-impl", "defmt", "nightly"] }
 nrf52840-hal = { version = "0.16.0", default-features = false }
-once_cell = { version = "1.17", default-features = false, features = ["critical-section"] }
+once_cell = { version = "1.18", default-features = false, features = ["critical-section"] }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 rand = { version = "0.8", default-features = false, features = ["nightly"] }
 static_cell = "1"
-strum = { version = "0.24", default-features = false, features = ["derive"] }
-strum_macros = "0.24"
+strum = { version = "0.25", default-features = false, features = ["derive"] }
+strum_macros = "0.25"
 zerocopy = "0.6"
 
 [profile.release]

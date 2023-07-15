@@ -25,10 +25,11 @@ mod weight;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::{
+    bind_interrupts,
     config::{Config, HfclkSource, LfclkSource},
     gpio::{self, AnyPin},
-    interrupt, peripherals,
-    usb::{Driver, SoftwareVbusDetect},
+    peripherals,
+    usb::{vbus_detect::SoftwareVbusDetect, Driver},
 };
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, mutex::Mutex};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
@@ -39,6 +40,10 @@ use nrf52840_hal::Delay as SysTickDelay;
 use nrf_softdevice::{self as _, SocEvent, Softdevice};
 use panic_probe as _;
 use static_cell::StaticCell;
+
+bind_interrupts!(struct Irqs {
+    USBD => embassy_nrf::usb::InterruptHandler<peripherals::USBD>;
+});
 
 #[global_allocator]
 /// Create a small heap. Not sure how to pass around closures without one.
@@ -198,8 +203,7 @@ async fn main(spawner: Spawner) -> ! {
     embassy_futures::yield_now().await;
 
     // Create the driver, from the HAL.
-    let irq = interrupt::take!(USBD);
-    let driver = Driver::new(p.USBD, irq, usb_detect_ref);
+    let driver = Driver::new(p.USBD, Irqs, usb_detect_ref);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);

@@ -244,7 +244,7 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel) {
             leds.green.set_low();
         }
 
-        let res = gatt_server::run(&conn, server, |e| match e {
+        let disconnected = gatt_server::run(&conn, server, |e| match e {
             ServerEvent::Progressor(e) => match e {
                 ProgressorServiceEvent::ControlWrite(val) => {
                     let control_op = ControlOpcode::try_from(val);
@@ -294,9 +294,6 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel) {
         // Make sure we stop measuring on disconnect
         measure_ch.send(WeightCommand::StopMeasurement).await;
 
-        if let Err(e) = res {
-            // Adds ~1kB of ROM usage
-            defmt::info!("gatt_server exited with error: {:?}", e);
-        }
+        defmt::info!("Disconnected");
     }
 }

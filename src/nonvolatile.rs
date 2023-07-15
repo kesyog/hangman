@@ -24,7 +24,7 @@
 /// 3. Write to UICR before initializing Softdevice
 use crc::{Crc, CRC_32_ISCSI};
 use embedded_storage::nor_flash::ReadNorFlash;
-use embedded_storage_async::nor_flash::AsyncNorFlash;
+use embedded_storage_async::nor_flash::NorFlash;
 use nrf_softdevice::{Flash, Softdevice};
 use strum::{EnumCount as _, IntoEnumIterator as _};
 use strum_macros::{EnumCount, EnumDiscriminants, EnumIter};
