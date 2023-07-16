@@ -110,7 +110,8 @@ async fn handle_command(
             context.state = MeasurementState::Idle
         }
         Ok(Command::Tare) => {
-            let measurement = take_measurement(adc, &context.calibration, context.offset).await;
+            let (_, measurement) =
+                take_measurement(adc, &context.calibration, context.offset).await;
             context.offset -= measurement;
         }
         Err(_) => (),
@@ -122,13 +123,20 @@ async fn handle_command(
 // See https://github.com/danielhenrymantilla/fix_hidden_lifetime_bug.rs
 #[allow(clippy::manual_async_fn)]
 #[fix_hidden_lifetime_bug]
-async fn measure(context: &MeasurementContext, adc: &ProtectedAdc) {
-    let MeasurementState::Active(ref measurement_cb, start_time) = context.state else {
+async fn measure(context: &mut MeasurementContext, adc: &ProtectedAdc) {
+    let MeasurementState::Active(ref measurement_cb, ref mut start_time) = context.state else {
         return;
     };
-    let measurement = take_measurement(adc, &context.calibration, context.offset).await;
-    let timestamp = Instant::now().duration_since(start_time).as_micros() as u32;
-    measurement_cb(timestamp, measurement);
+    let (timestamp, measurement) =
+        take_measurement(adc, &context.calibration, context.offset).await;
+    let time_since_start_us = match timestamp.checked_duration_since(*start_time) {
+        Some(duration) => duration.as_micros() as u32,
+        None => {
+            *start_time = timestamp;
+            0
+        }
+    };
+    measurement_cb(time_since_start_us, measurement);
 }
 
 #[embassy_executor::task]
@@ -136,6 +144,7 @@ pub async fn measure_task(
     rx: ReceiveChannel,
     adc: &'static mut WeightAdc,
     sd: &'static Softdevice,
+    mut debug: embassy_nrf::gpio::Output<'static, embassy_nrf::gpio::AnyPin>,
 ) {
     defmt::info!("Starting measurement task");
     let nvm = Nvm::new(sd);
@@ -154,7 +163,9 @@ pub async fn measure_task(
     loop {
         context = handle_command(&rx, &context, &adc).await;
         if let MeasurementState::Active(..) = context.state {
-            measure(&context, &adc).await;
+            debug.set_high();
+            measure(&mut context, &adc).await;
+            debug.set_low();
         } else {
             // Sleep to give a chance for other tasks to run
             Timer::after(Duration::from_millis(100)).await;
@@ -186,12 +197,16 @@ impl<'a> RngCore for SoftDeviceRng<'a> {
     }
 }
 
-async fn take_measurement(adc: &ProtectedAdc, calibration: &Calibration, offset: f32) -> f32 {
+async fn take_measurement(
+    adc: &ProtectedAdc,
+    calibration: &Calibration,
+    offset: f32,
+) -> (Instant, f32) {
     let mut adc = adc.lock().await;
     if !adc.is_powered() {
         adc.power_up();
     }
-    let reading = adc.take_measurement().await.unwrap();
+    let (timestamp, reading) = adc.take_measurement().await.unwrap();
     let adjusted = (reading + calibration.b) as f32 * calibration.m + offset;
 
     defmt::debug!(
@@ -202,7 +217,7 @@ async fn take_measurement(adc: &ProtectedAdc, calibration: &Calibration, offset:
         calibration.b,
         adjusted,
     );
-    adjusted
+    (timestamp, adjusted)
 }
 
 #[allow(unused)]

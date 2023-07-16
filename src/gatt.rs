@@ -265,7 +265,7 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel) {
                     let control_op = ControlOpcode::try_from(val);
                     match control_op {
                         Ok(op) => defmt::info!("ProgressorService.ControlWrite: {}", op),
-                        Err(op) => defmt::info!("ProgressorService.ControlWrite: 0x{:02X}", op),
+                        Err(op) => defmt::warn!("ProgressorService.ControlWrite: 0x{:02X}", op),
                     }
                     match control_op {
                         Ok(ControlOpcode::Tare) => {
@@ -276,9 +276,9 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel) {
                         Ok(ControlOpcode::StartMeasurement) => {
                             let notify_cb = Rc::new({
                                 let conn = conn.clone();
-                                move |timestamp: u32, measurement: f32| {
+                                move |time_since_start_us: u32, measurement: f32| {
                                     if notify_data(
-                                        DataOpcode::Weight(measurement, timestamp),
+                                        DataOpcode::Weight(measurement, time_since_start_us),
                                         &conn,
                                     )
                                     .is_err()
