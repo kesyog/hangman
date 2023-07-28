@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use aligned::{Aligned, A32};
+use as_slice::AsMutSlice;
 /// Janky driver to store stuff in non-volatile memory e.g. calibration constants
 ///
 /// Ideally, we'd use the nrf52's UICR registers, which are made for this purpose, but it's
@@ -81,24 +83,30 @@ fn checksum(bytes: &[u8]) -> [u8; 4] {
 
 pub struct Nvm {
     flash: Flash,
-    cache: [[u8; 4]; RegisterRead::COUNT],
+    // Ensure that we only read into and write from 4-byte aligned buffers
+    cache: Aligned<A32, [[u8; 4]; RegisterRead::COUNT]>,
     dirty: bool,
 }
 
 impl Nvm {
     pub fn new(sd: &Softdevice) -> Self {
-        let mut flash = Flash::take(sd);
-        let mut cache: [u8; 4 * RegisterRead::COUNT] = Default::default();
-        flash.read(MIN_ADDR, &mut cache).unwrap();
-        let mut stored_checksum: [u8; 4] = Default::default();
-        flash.read(CHECKSUM_ADDR, &mut stored_checksum).unwrap();
-        let load_defaults = stored_checksum != checksum(&cache);
-
+        let flash = Flash::take(sd);
         let mut new = Self {
             flash,
-            cache: bytemuck::cast(cache),
+            cache: Aligned::default(),
             dirty: false,
         };
+        new.flash
+            .read(MIN_ADDR, bytemuck::cast_slice_mut(new.cache.as_mut_slice()))
+            .unwrap();
+        // Must only read into 4-byte aligned buffer
+        let mut stored_checksum: Aligned<A32, [u8; 4]> = Aligned::default();
+        new.flash
+            .read(CHECKSUM_ADDR, stored_checksum.as_mut_slice())
+            .unwrap();
+        let load_defaults =
+            *stored_checksum != checksum(bytemuck::cast_slice(new.cache.as_slice()));
+
         if load_defaults {
             defmt::info!("Checksum mismatch. Rewriting NVM defaults.");
             for reg in RegisterRead::iter() {
@@ -121,7 +129,7 @@ impl Nvm {
         if !self.dirty {
             return;
         }
-        let raw_cache = bytemuck::cast_slice(&self.cache);
+        let raw_cache = bytemuck::cast_slice(self.cache.as_slice());
         let checksum = checksum(raw_cache);
         self.flash
             .erase(MIN_ADDR, MAX_ADDR)
