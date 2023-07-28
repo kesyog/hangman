@@ -14,19 +14,20 @@
 
 extern crate alloc;
 
-use crate::weight::Command as WeightCommand;
+use crate::weight;
 use crate::MEASURE_COMMAND_CHANNEL_SIZE;
-use alloc::rc::Rc;
+use alloc::boxed::Box;
 use defmt::Format;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Sender;
+use embassy_time::Duration;
 use nrf_softdevice::ble::gatt_server::NotifyValueError;
 use nrf_softdevice::ble::peripheral::AdvertiseError;
 use nrf_softdevice::ble::{gatt_server, Connection, GattValue};
 use nrf_softdevice::{ble, raw as raw_sd, Softdevice};
 use zerocopy::{AsBytes, FromBytes};
 
-type MeasureChannel = Sender<'static, NoopRawMutex, WeightCommand, MEASURE_COMMAND_CHANNEL_SIZE>;
+type MeasureChannel = Sender<'static, NoopRawMutex, weight::Command, MEASURE_COMMAND_CHANNEL_SIZE>;
 
 #[rustfmt::skip]
 const ADVERTISING_DATA: &[u8] = &[
@@ -89,7 +90,7 @@ impl DataOpcode {
         let mut value = [0; 8];
         match self {
             DataOpcode::BatteryVoltage(voltage) => {
-                value[0..4].copy_from_slice(&voltage.to_le_bytes())
+                value[0..4].copy_from_slice(&voltage.to_le_bytes());
             }
             DataOpcode::Weight(weight, timestamp) => {
                 value[0..4].copy_from_slice(&weight.to_le_bytes());
@@ -124,9 +125,7 @@ impl GattValue for DataPoint {
     const MAX_SIZE: usize = 10;
 
     fn from_gatt(data: &[u8]) -> Self {
-        if data.len() < 2 {
-            panic!("DataPoint is too small");
-        }
+        assert!(data.len() >= 2, "DataPoint is too small");
         let mut value = [0; 8];
         let length = usize::min(data.len() - 2, data[1] as usize).min(value.len());
         value[0..length].copy_from_slice(&data[2..2 + length]);
@@ -269,16 +268,20 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel) {
                     }
                     match control_op {
                         Ok(ControlOpcode::Tare) => {
-                            if measure_ch.try_send(WeightCommand::Tare).is_err() {
+                            if measure_ch.try_send(weight::Command::Tare).is_err() {
                                 defmt::error!("Failed to send Tare");
                             }
                         }
                         Ok(ControlOpcode::StartMeasurement) => {
-                            let notify_cb = Rc::new({
+                            let notify_cb = Box::new({
                                 let conn = conn.clone();
-                                move |time_since_start_us: u32, measurement: f32| {
+                                move |duration_since_start: Duration, measurement: f32| {
                                     if notify_data(
-                                        DataOpcode::Weight(measurement, time_since_start_us),
+                                        DataOpcode::Weight(
+                                            measurement,
+                                            u32::try_from(duration_since_start.as_micros())
+                                                .unwrap(),
+                                        ),
                                         &conn,
                                     )
                                     .is_err()
@@ -288,15 +291,17 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel) {
                                 }
                             });
                             if measure_ch
-                                .try_send(WeightCommand::StartMeasurement(notify_cb))
+                                .try_send(weight::Command::StartSampling(
+                                    weight::SampleType::Tared(Some(notify_cb)),
+                                ))
                                 .is_err()
                             {
-                                defmt::error!("Failed to send StartMeasurement");
+                                defmt::error!("Failed to send StartSampling");
                             }
                         }
                         Ok(ControlOpcode::StopMeasurement) => {
-                            if measure_ch.try_send(WeightCommand::StopMeasurement).is_err() {
-                                defmt::error!("Failed to send StopMeasurement");
+                            if measure_ch.try_send(weight::Command::StopSampling).is_err() {
+                                defmt::error!("Failed to send StopSampling");
                             }
                         }
                         _ => (),
@@ -310,7 +315,7 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel) {
         .await;
         crate::leds::singleton_get().lock().await.green.set_high();
         // Make sure we stop measuring on disconnect
-        measure_ch.send(WeightCommand::StopMeasurement).await;
+        measure_ch.send(weight::Command::StopSampling).await;
 
         defmt::info!("Disconnected");
     }

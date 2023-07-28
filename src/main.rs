@@ -15,23 +15,32 @@
 #![no_main]
 #![cfg_attr(not(test), no_std)]
 #![feature(type_alias_impl_trait)]
+#![feature(async_fn_in_trait)]
+// TODO: remove once crate is closer to feature-complete
+#![allow(dead_code)]
 
 mod gatt;
-mod hx711;
 mod leds;
 mod nonvolatile;
 mod weight;
 
+extern crate alloc;
+
+use alloc::boxed::Box;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::{
     bind_interrupts,
     config::{Config, HfclkSource, LfclkSource},
-    gpio::{self, AnyPin},
+    gpio::{self, AnyPin, Pin},
     peripherals,
     usb::{vbus_detect::SoftwareVbusDetect, Driver},
 };
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, mutex::Mutex};
+use embassy_sync::{
+    blocking_mutex::raw::NoopRawMutex,
+    channel::{Channel, Receiver},
+    mutex::Mutex,
+};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::UsbDevice;
@@ -40,6 +49,7 @@ use nrf52840_hal::Delay as SysTickDelay;
 use nrf_softdevice::{self as _, SocEvent, Softdevice};
 use panic_probe as _;
 use static_cell::StaticCell;
+use weight::hx711::Hx711;
 
 bind_interrupts!(struct Irqs {
     USBD => embassy_nrf::usb::InterruptHandler<peripherals::USBD>;
@@ -56,9 +66,10 @@ const HEAP_SIZE: usize = 1024;
 const MEASURE_COMMAND_CHANNEL_SIZE: usize = 5;
 
 type UsbDriver = Driver<'static, peripherals::USBD, &'static SoftwareVbusDetect>;
-type WeightAdc = hx711::Hx711<'static, peripherals::P0_17, peripherals::P0_20>;
 type SharedDelay = Mutex<NoopRawMutex, SysTickDelay>;
 type MeasureCommandChannel = Channel<NoopRawMutex, weight::Command, MEASURE_COMMAND_CHANNEL_SIZE>;
+type MeasureCommandReceiver =
+    Receiver<'static, NoopRawMutex, weight::Command, MEASURE_COMMAND_CHANNEL_SIZE>;
 
 #[embassy_executor::task]
 async fn usb_task(mut device: UsbDevice<'static, UsbDriver>) {
@@ -134,7 +145,7 @@ fn setup_softdevice() -> &'static mut Softdevice {
             periph_role_count: 2,
         }),
         gap_device_name: Some(raw::ble_gap_cfg_device_name_t {
-            p_value: b"Progressor_1719" as *const u8 as _,
+            p_value: (b"Progressor_1719" as *const u8).cast_mut(),
             current_len: 15,
             max_len: 15,
             write_perm: unsafe { core::mem::zeroed() },
@@ -184,11 +195,16 @@ async fn main(spawner: Spawner) -> ! {
     );
     leds::singleton_init(rgb_blue_led, rgb_red_led, green_led).unwrap();
 
-    let hx711_data = gpio::Input::new(p.P0_17, gpio::Pull::None);
-    // Set high initially to power down chip
-    let hx711_clock = gpio::Output::new(p.P0_20, gpio::Level::High, gpio::OutputDrive::Standard);
-    static HX711: StaticCell<WeightAdc> = StaticCell::new();
-    let hx711 = HX711.init(WeightAdc::new(hx711_data, hx711_clock, delay));
+    // orange DATA 0.17
+    let hx711_data = gpio::Input::new(p.P0_17.degrade(), gpio::Pull::None);
+    // yellow CLK 0.20
+    let hx711_clock = gpio::Output::new(
+        p.P0_20.degrade(),
+        // Set high initially to power down chip
+        gpio::Level::High,
+        gpio::OutputDrive::Standard,
+    );
+    let hx711 = Hx711::new(hx711_data, hx711_clock, delay);
 
     // USB setup
     static USB_DETECT: StaticCell<SoftwareVbusDetect> = StaticCell::new();
@@ -261,12 +277,32 @@ async fn main(spawner: Spawner) -> ! {
     spawner.must_spawn(usb_task(usb));
     spawner.must_spawn(echo_task(class));
     spawner.must_spawn(gatt::ble_task(sd, ch.sender()));
-    spawner.must_spawn(weight::measure_task(ch.receiver(), hx711, sd));
+    spawner.must_spawn(weight::task_function(ch.receiver(), hx711, sd));
 
     let mut button = gpio::Input::new(p.P1_06, gpio::Pull::Up);
+    let button_sender = ch.sender();
+    let mut active = false;
 
+    // Temporary janky flow to calibrate / test calibration
+    // Use button to start/stop measurements
     loop {
         button.wait_for_falling_edge().await;
         defmt::debug!("button press");
+        if active {
+            button_sender.send(weight::Command::StopSampling).await;
+        } else {
+            // Use WindowAverageInt for raw values or WindowAverageFloat for calibrated values
+            let mut average = weight::average::WindowAveragerFloat::<20>::default();
+            button_sender
+                .send(weight::Command::StartSampling(
+                    weight::SampleType::Calibrated(Some(Box::new(move |_, value| {
+                        if let Some(average) = average.add_sample(value) {
+                            defmt::info!("Averaged: {}", average);
+                        }
+                    }))),
+                ))
+                .await;
+        }
+        active = !active;
     }
 }
