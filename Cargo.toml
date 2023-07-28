@@ -18,7 +18,7 @@ embassy-futures = { git = "https://github.com/embassy-rs/embassy", features = ["
 embassy-nrf = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "nrf52840", "unstable-pac", "time-driver-rtc1", "gpiote", "defmt"] }
 embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "defmt"] }
 embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["nightly", "generic-queue-8", "defmt"] }
-embassy-usb = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"]}
+embassy-usb = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"], optional = true}
 embedded-alloc = "0.5"
 embedded-storage = "0.3"
 embedded-storage-async = "0.4"
@@ -32,6 +32,9 @@ static_cell = "1"
 strum = { version = "0.25", default-features = false, features = ["derive"] }
 strum_macros = "0.25"
 zerocopy = "0.6"
+
+[features]
+console = ["dep:embassy-usb"]
 
 [profile.release]
 # 1 minimum for backtraces?

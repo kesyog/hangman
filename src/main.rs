@@ -19,6 +19,8 @@
 // TODO: remove once crate is closer to feature-complete
 #![allow(dead_code)]
 
+#[cfg(feature = "console")]
+mod console;
 mod gatt;
 mod leds;
 mod nonvolatile;
@@ -30,20 +32,15 @@ use alloc::boxed::Box;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::{
-    bind_interrupts,
     config::{Config, HfclkSource, LfclkSource},
     gpio::{self, AnyPin, Pin},
-    peripherals,
-    usb::{vbus_detect::SoftwareVbusDetect, Driver},
+    usb::vbus_detect::SoftwareVbusDetect,
 };
 use embassy_sync::{
     blocking_mutex::raw::NoopRawMutex,
     channel::{Channel, Receiver},
     mutex::Mutex,
 };
-use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
-use embassy_usb::driver::EndpointError;
-use embassy_usb::UsbDevice;
 use embedded_alloc::Heap;
 use nrf52840_hal::Delay as SysTickDelay;
 use nrf_softdevice::{self as _, SocEvent, Softdevice};
@@ -51,8 +48,9 @@ use panic_probe as _;
 use static_cell::StaticCell;
 use weight::hx711::Hx711;
 
-bind_interrupts!(struct Irqs {
-    USBD => embassy_nrf::usb::InterruptHandler<peripherals::USBD>;
+#[cfg(feature = "console")]
+embassy_nrf::bind_interrupts!(struct Irqs {
+    USBD => embassy_nrf::usb::InterruptHandler<embassy_nrf::peripherals::USBD>;
 });
 
 #[global_allocator]
@@ -65,48 +63,10 @@ const HEAP_SIZE: usize = 1024;
 // and deadlock.
 const MEASURE_COMMAND_CHANNEL_SIZE: usize = 5;
 
-type UsbDriver = Driver<'static, peripherals::USBD, &'static SoftwareVbusDetect>;
 type SharedDelay = Mutex<NoopRawMutex, SysTickDelay>;
 type MeasureCommandChannel = Channel<NoopRawMutex, weight::Command, MEASURE_COMMAND_CHANNEL_SIZE>;
 type MeasureCommandReceiver =
     Receiver<'static, NoopRawMutex, weight::Command, MEASURE_COMMAND_CHANNEL_SIZE>;
-
-#[embassy_executor::task]
-async fn usb_task(mut device: UsbDevice<'static, UsbDriver>) {
-    defmt::info!("Starting usb task");
-    device.run().await;
-}
-
-#[embassy_executor::task]
-async fn echo_task(mut class: CdcAcmClass<'static, UsbDriver>) {
-    loop {
-        defmt::debug!("Waiting for USB");
-        class.wait_connection().await;
-        defmt::debug!("USB connected");
-        let _ = echo(&mut class).await;
-        defmt::debug!("USB disconnected");
-    }
-}
-
-struct Disconnected {}
-
-impl From<EndpointError> for Disconnected {
-    fn from(val: EndpointError) -> Self {
-        match val {
-            EndpointError::BufferOverflow => panic!("Buffer overflow"),
-            EndpointError::Disabled => Disconnected {},
-        }
-    }
-}
-
-async fn echo(class: &mut CdcAcmClass<'static, UsbDriver>) -> Result<(), Disconnected> {
-    let mut buf = [0; 64];
-    loop {
-        let n = class.read_packet(&mut buf).await?;
-        let data = &buf[..n];
-        class.write_packet(data).await?;
-    }
-}
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice, usb_detect: &'static SoftwareVbusDetect) -> ! {
@@ -207,10 +167,13 @@ async fn main(spawner: Spawner) -> ! {
     let hx711 = Hx711::new(hx711_data, hx711_clock, delay);
 
     // USB setup
-    static USB_DETECT: StaticCell<SoftwareVbusDetect> = StaticCell::new();
-    // Hack: pretend USB is already connected. not a bad assumption since this is a dongle
-    // There might be a race condition at startup between USB init and SD init.
-    let usb_detect_ref = &*USB_DETECT.init(SoftwareVbusDetect::new(true, true));
+    let usb_detect_ref: &SoftwareVbusDetect = {
+        static USB_DETECT: StaticCell<SoftwareVbusDetect> = StaticCell::new();
+        // Hack: pretend USB is already connected. not a bad assumption since this is a dongle
+        // There might be a race condition at startup between USB init and SD init.
+        USB_DETECT.init(SoftwareVbusDetect::new(true, true))
+    };
+
     let sd = setup_softdevice();
     gatt::server::init(sd).unwrap();
     spawner.must_spawn(softdevice_task(sd, usb_detect_ref));
@@ -218,64 +181,18 @@ async fn main(spawner: Spawner) -> ! {
     // It's recommended to start the SoftDevice before doing anything else
     embassy_futures::yield_now().await;
 
-    // Create the driver, from the HAL.
-    let driver = Driver::new(p.USBD, Irqs, usb_detect_ref);
-
-    // Create embassy-usb Config
-    let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
-    config.manufacturer = Some("Kes LLC");
-    config.product = Some("KesOMatic");
-    config.serial_number = Some("deadbeef");
-    config.max_power = 100;
-    config.max_packet_size_0 = 64;
-
-    // Required for windows compatiblity.
-    // https://developer.nordicsemi.com/nRF_Connect_SDK/doc/1.9.1/kconfig/CONFIG_CDC_ACM_IAD.html#help
-    //config.device_class = 0x02;
-    //config.device_sub_class = 0x02;
-    /*
-    config.device_protocol = 0x01;
-    config.composite_with_iads = true;
-    */
-
-    struct Resources {
-        device_descriptor: [u8; 256],
-        config_descriptor: [u8; 256],
-        bos_descriptor: [u8; 256],
-        control_buf: [u8; 64],
-        serial_state: State<'static>,
-    }
-    static RESOURCES: StaticCell<Resources> = StaticCell::new();
-    let res = RESOURCES.init(Resources {
-        device_descriptor: [0; 256],
-        config_descriptor: [0; 256],
-        bos_descriptor: [0; 256],
-        control_buf: [0; 64],
-        serial_state: State::new(),
-    });
-
-    // Create embassy-usb DeviceBuilder using the driver and config.
-    let mut builder = embassy_usb::Builder::new(
-        driver,
-        config,
-        &mut res.device_descriptor,
-        &mut res.config_descriptor,
-        &mut res.bos_descriptor,
-        &mut res.control_buf,
-    );
-
-    // Create classes on the builder.
-    let class = CdcAcmClass::new(&mut builder, &mut res.serial_state, 64);
-
-    // Build the builder.
-    let usb = builder.build();
+    #[cfg(feature = "console")]
+    let (usb, class) = console::board::setup_usb(p.USBD, Irqs, usb_detect_ref);
 
     static GATT_MEASUREMENT_CHANNEL: StaticCell<MeasureCommandChannel> = StaticCell::new();
     let ch = GATT_MEASUREMENT_CHANNEL.init(Channel::new());
 
     // Start tasks
-    spawner.must_spawn(usb_task(usb));
-    spawner.must_spawn(echo_task(class));
+    #[cfg(feature = "console")]
+    {
+        spawner.must_spawn(console::task::usb_task(usb));
+        spawner.must_spawn(console::task::echo_task(class));
+    }
     spawner.must_spawn(gatt::ble_task(sd, ch.sender()));
     spawner.must_spawn(weight::task_function(ch.receiver(), hx711, sd));
 
