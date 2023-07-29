@@ -12,52 +12,84 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[derive(Default, Clone, Copy)]
-pub struct WindowAveragerInt<const N: usize> {
-    accumulator: i64,
-    n_samples: usize,
+use core::ops::{AddAssign, Div, SubAssign};
+
+pub(crate) trait Accumulator {
+    type Sum;
 }
 
-impl<const N: usize> WindowAveragerInt<N> {
-    pub fn add_sample(&mut self, sample: i32) -> Option<i32> {
-        self.accumulator += i64::from(sample);
+impl Accumulator for f32 {
+    type Sum = f64;
+}
+
+impl Accumulator for i32 {
+    type Sum = i64;
+}
+
+// To reduce bloat, consider NOT using const generics if there are multiple instances
+#[derive(Default)]
+pub(crate) struct Window<const N: usize, T>
+where
+    T: Accumulator,
+{
+    accumulator: T::Sum,
+    n_samples: usize,
+    // TODO: delete min/max in window
+    max: Option<T::Sum>,
+    min: Option<T::Sum>,
+}
+
+impl<const N: usize, T> Window<N, T>
+where
+    T: Accumulator,
+{
+    pub fn add_sample(&mut self, sample: T) -> Option<T>
+    where
+        T::Sum: From<T>
+            + SubAssign<T::Sum>
+            + AddAssign<T::Sum>
+            + Div<Output = T::Sum>
+            + num::NumCast
+            + Copy
+            + PartialOrd,
+        T: num::NumCast + Copy,
+        Self: Default,
+    {
+        let sample: T::Sum = sample.into();
+        self.accumulator += sample;
         self.n_samples += 1;
 
-        if self.n_samples >= N {
-            let average = self.accumulator / (self.n_samples as i64);
-            self.reset();
-            Some(average as i32)
-        } else {
-            None
+        match &mut self.max {
+            Some(max) if *max >= sample => (),
+            _ => self.max = Some(sample),
         }
-    }
 
-    pub fn reset(&mut self) {
-        *self = Self::default();
-    }
-}
-
-#[derive(Default, Clone, Copy)]
-pub struct WindowAveragerFloat<const N: usize> {
-    accumulator: f64,
-    n_samples: usize,
-}
-
-impl<const N: usize> WindowAveragerFloat<N> {
-    pub fn add_sample(&mut self, sample: f32) -> Option<f32> {
-        self.accumulator += f64::from(sample);
-        self.n_samples += 1;
-
-        if self.n_samples >= N {
-            let average = self.accumulator / (self.n_samples as f64);
-            self.reset();
-            Some(average as f32)
-        } else {
-            None
+        match &mut self.min {
+            Some(min) if *min <= sample => (),
+            _ => self.min = Some(sample),
         }
+
+        if self.n_samples < N {
+            return None;
+        }
+
+        // Remove max and min to reduce the impact of outliers iff window size is above an
+        // arbitrary threshold
+        if N > 5 {
+            self.accumulator -= self.min.unwrap();
+            self.accumulator -= self.max.unwrap();
+            self.n_samples -= 2;
+        }
+
+        let average = self.accumulator / (<T::Sum as num::NumCast>::from(self.n_samples).unwrap());
+        self.reset();
+        Some(<T as num::NumCast>::from(average).unwrap())
     }
 
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self)
+    where
+        Self: Default,
+    {
         *self = Self::default();
     }
 }

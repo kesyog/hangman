@@ -46,7 +46,7 @@ use nrf52840_hal::Delay as SysTickDelay;
 use nrf_softdevice::{self as _, SocEvent, Softdevice};
 use panic_probe as _;
 use static_cell::StaticCell;
-use weight::hx711::Hx711;
+use weight::{average, hx711::Hx711};
 
 #[cfg(feature = "console")]
 embassy_nrf::bind_interrupts!(struct Irqs {
@@ -208,8 +208,9 @@ async fn main(spawner: Spawner) -> ! {
         if active {
             button_sender.send(weight::Command::StopSampling).await;
         } else {
-            // Use WindowAverageInt for raw values or WindowAverageFloat for calibrated values
-            let mut average = weight::average::WindowAveragerFloat::<20>::default();
+            // Use Window::<N, i32> and SampleType::Raw for calibrating
+            // Use Window::<N, f32> and SampleType::Calibrated for checking calibration
+            let mut average = average::Window::<20, f32>::default();
             button_sender
                 .send(weight::Command::StartSampling(
                     weight::SampleType::Calibrated(Some(Box::new(move |_, value| {
