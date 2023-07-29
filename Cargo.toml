@@ -33,8 +33,6 @@ once_cell = { version = "1.18", default-features = false, features = ["critical-
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 rand = { version = "0.8", default-features = false, features = ["nightly"] }
 static_cell = "1"
-strum = { version = "0.25", default-features = false, features = ["derive"] }
-strum_macros = "0.25"
 
 [features]
 console = ["dep:embassy-usb"]

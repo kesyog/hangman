@@ -16,7 +16,7 @@ use super::calibrate::Calibrator;
 use super::hx711::Hx711;
 use super::tare::Tarer;
 use super::{Command, Sample, SampleProducerMut, SampleType};
-use crate::nonvolatile::{Nvm, RegisterRead};
+use crate::nonvolatile::Nvm;
 use crate::MeasureCommandReceiver;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
@@ -121,8 +121,8 @@ pub async fn task_function(
     static CALIBRATOR: StaticCell<Mutex<NoopRawMutex, Calibrator<&'static SharedAdc>>> =
         StaticCell::new();
     let nvm = Nvm::new(sd);
-    let cal_m = f32::from_le_bytes(nvm.read(RegisterRead::CalibrationM));
-    let cal_b = i32::from_le_bytes(nvm.read(RegisterRead::CalibrationB));
+    let cal_m = nvm.read_cal_m();
+    let cal_b = nvm.read_cal_b();
     defmt::info!("Loaded calibration: m={} b={}", cal_m, cal_b);
     let calibrator: &SharedCalibrator =
         CALIBRATOR.init(Mutex::new(Calibrator::new(adc, cal_m, cal_b)));

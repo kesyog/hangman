@@ -12,24 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Janky driver to store values in non-volatile memory e.g. calibration constants
+//!
+//! Data is stored in a pre-determined location in Flash and cached in RAM. A checksum for the
+//! entire block is stored in Flash, and if there is a mismatch, everything is replaed with default
+//! values.
+//!
+//! Ideally, we'd use the nrf52's UICR registers, which are made for this purpose, but it's
+//! impossible to write to them with the Softdevice enabled. Instead, we just reserve one 4kB page
+//! of Flash.
+//!
+//! TODO: consider alternate flow
+//! 1. Write new values to uninit RAM
+//! 2. Reboot
+//! 3. Write to UICR before initializing Softdevice
 use aligned::{Aligned, A32};
 use as_slice::AsMutSlice;
-/// Janky driver to store stuff in non-volatile memory e.g. calibration constants
-///
-/// Ideally, we'd use the nrf52's UICR registers, which are made for this purpose, but it's
-/// impossible to write to them with the Softdevice enabled. Instead, we just reserve one 4kB page
-/// of Flash.
-///
-/// TODO: consider alternate flow
-/// 1. Write new values to uninit RAM
-/// 2. Reboot
-/// 3. Write to UICR before initializing Softdevice
+use bytemuck_derive::{Pod, Zeroable};
 use crc::{Crc, CRC_32_ISCSI};
 use embedded_storage::nor_flash::ReadNorFlash;
 use embedded_storage_async::nor_flash::NorFlash;
 use nrf_softdevice::{Flash, Softdevice};
-use strum::{EnumCount as _, IntoEnumIterator as _};
-use strum_macros::{EnumCount, EnumDiscriminants, EnumIter};
 
 /// Address of start of Flash page
 const MIN_ADDR: u32 = 0xDF000;
@@ -37,41 +40,25 @@ const MIN_ADDR: u32 = 0xDF000;
 const MAX_ADDR: u32 = 0xE0000;
 const CHECKSUM_ADDR: u32 = MAX_ADDR - 4;
 
-#[derive(EnumDiscriminants, Clone, Copy)]
-#[strum_discriminants(name(RegisterRead), derive(EnumCount, EnumIter))]
-pub enum RegisterWrite {
-    CalibrationM(f32),
-    CalibrationB(i32),
+/// Data stored in Flash
+///
+/// The struct is stored as is, but aligned via `AlignedCache`. Care must be taken if new fields
+/// are added, as the checksum mechanism will cause all stored values to be reset without migration
+/// code.
+#[derive(Copy, Clone, Pod, Zeroable)]
+#[repr(C, packed)]
+struct Cache {
+    calibration_m: f32,
+    calibration_b: i32,
 }
+// Ensure that we only read into and write from 4-byte aligned buffers
+type AlignedCache = Aligned<A32, Cache>;
 
-impl RegisterWrite {
-    /// Index within cache array
-    fn address(&self) -> usize {
-        RegisterRead::from(self).address()
-    }
-
-    fn to_bytes(self) -> [u8; 4] {
-        match self {
-            RegisterWrite::CalibrationM(val) => val.to_le_bytes(),
-            RegisterWrite::CalibrationB(val) => val.to_le_bytes(),
-        }
-    }
-}
-
-impl RegisterRead {
-    /// Index within cache array
-    const fn address(&self) -> usize {
-        *self as usize
-    }
-
-    const fn default(&self) -> RegisterWrite {
-        match self {
-            RegisterRead::CalibrationM => {
-                RegisterWrite::CalibrationM(crate::weight::DEFAULT_CALIBRATION_M)
-            }
-            RegisterRead::CalibrationB => {
-                RegisterWrite::CalibrationB(crate::weight::DEFAULT_CALIBRATION_B)
-            }
+impl Default for Cache {
+    fn default() -> Self {
+        Self {
+            calibration_m: crate::weight::DEFAULT_CALIBRATION_M,
+            calibration_b: crate::weight::DEFAULT_CALIBRATION_B,
         }
     }
 }
@@ -83,8 +70,7 @@ fn checksum(bytes: &[u8]) -> [u8; 4] {
 
 pub struct Nvm {
     flash: Flash,
-    // Ensure that we only read into and write from 4-byte aligned buffers
-    cache: Aligned<A32, [[u8; 4]; RegisterRead::COUNT]>,
+    cache: AlignedCache,
     dirty: bool,
 }
 
@@ -97,39 +83,45 @@ impl Nvm {
             dirty: false,
         };
         new.flash
-            .read(MIN_ADDR, bytemuck::cast_slice_mut(new.cache.as_mut_slice()))
+            .read(MIN_ADDR, bytemuck::bytes_of_mut(&mut *new.cache))
             .unwrap();
         // Must only read into 4-byte aligned buffer
         let mut stored_checksum: Aligned<A32, [u8; 4]> = Aligned::default();
         new.flash
             .read(CHECKSUM_ADDR, stored_checksum.as_mut_slice())
             .unwrap();
-        let load_defaults =
-            *stored_checksum != checksum(bytemuck::cast_slice(new.cache.as_slice()));
+        let load_defaults = *stored_checksum != checksum(bytemuck::bytes_of(&*new.cache));
 
         if load_defaults {
             defmt::info!("Checksum mismatch. Rewriting NVM defaults.");
-            for reg in RegisterRead::iter() {
-                new.write(reg.default());
-            }
+            new.cache = AlignedCache::default();
         }
         new
     }
 
-    pub fn write(&mut self, reg: RegisterWrite) {
-        self.cache[reg.address()] = reg.to_bytes();
+    pub fn write_cal_m(&mut self, val: f32) {
+        self.cache.calibration_m = val;
         self.dirty = true;
     }
 
-    pub fn read(&self, reg: RegisterRead) -> [u8; 4] {
-        self.cache[reg.address()]
+    pub fn read_cal_m(&self) -> f32 {
+        self.cache.calibration_m
+    }
+
+    pub fn write_cal_b(&mut self, val: i32) {
+        self.cache.calibration_b = val;
+        self.dirty = true;
+    }
+
+    pub fn read_cal_b(&self) -> i32 {
+        self.cache.calibration_b
     }
 
     pub async fn flush(&mut self) {
         if !self.dirty {
             return;
         }
-        let raw_cache = bytemuck::cast_slice(self.cache.as_slice());
+        let raw_cache = bytemuck::bytes_of(&*self.cache);
         let checksum = checksum(raw_cache);
         self.flash
             .erase(MIN_ADDR, MAX_ADDR)
