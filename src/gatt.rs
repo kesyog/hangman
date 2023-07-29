@@ -17,6 +17,7 @@ extern crate alloc;
 use crate::weight;
 use crate::MEASURE_COMMAND_CHANNEL_SIZE;
 use alloc::boxed::Box;
+use bytemuck_derive::{Pod, Zeroable};
 use defmt::Format;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Sender;
@@ -25,7 +26,6 @@ use nrf_softdevice::ble::gatt_server::NotifyValueError;
 use nrf_softdevice::ble::peripheral::AdvertiseError;
 use nrf_softdevice::ble::{gatt_server, Connection, GattValue};
 use nrf_softdevice::{ble, raw as raw_sd, Softdevice};
-use zerocopy::{AsBytes, FromBytes};
 
 type MeasureChannel = Sender<'static, NoopRawMutex, weight::Command, MEASURE_COMMAND_CHANNEL_SIZE>;
 
@@ -102,7 +102,7 @@ impl DataOpcode {
     }
 }
 
-#[derive(AsBytes)]
+#[derive(Copy, Clone, Pod, Zeroable)]
 #[repr(C, packed)]
 pub struct DataPoint {
     opcode: u8,
@@ -138,7 +138,7 @@ impl GattValue for DataPoint {
 
     fn to_gatt(&self) -> &[u8] {
         let length = self.length + 2;
-        &self.as_bytes()[..length.into()]
+        &bytemuck::bytes_of(self)[..length.into()]
     }
 }
 
@@ -158,7 +158,7 @@ pub enum ControlOpcode {
     SampleBattery = 0x6F,
 }
 
-#[derive(FromBytes, AsBytes)]
+#[derive(Copy, Clone, Pod, Zeroable)]
 #[repr(C, packed)]
 pub struct ControlPoint {
     opcode: u8,
@@ -202,12 +202,12 @@ impl GattValue for ControlPoint {
     const MAX_SIZE: usize = 2;
 
     fn from_gatt(data: &[u8]) -> Self {
-        Self::read_from(data).unwrap()
+        *bytemuck::from_bytes(data)
     }
 
     fn to_gatt(&self) -> &[u8] {
         let length = self.length + 2;
-        &self.as_bytes()[..length.into()]
+        &bytemuck::bytes_of(self)[..length.into()]
     }
 }
 
