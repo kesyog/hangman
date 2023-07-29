@@ -15,7 +15,7 @@
 use super::calibrate::Calibrator;
 use super::hx711::Hx711;
 use super::tare::Tarer;
-use super::{Command, Sample, SampleProducerMut, SampleType};
+use super::{average, Command, Sample, SampleProducerMut, SampleType};
 use crate::nonvolatile::Nvm;
 use crate::MeasureCommandReceiver;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -62,9 +62,22 @@ async fn handle_command(cmd: Command, context: &mut MeasurementContext, adc: &Sh
             context.state = MeasurementState::Idle;
         }
         Command::Tare => {
+            const WARMUP: usize = 5;
+            const FILTER_SIZE: usize = 20;
+            for _ in 0..WARMUP {
+                let _ = context.calibrator.sample().await;
+            }
+            let mut filter = average::Window::<FILTER_SIZE, f32>::default();
+            for _ in 0..(FILTER_SIZE - 1) {
+                let Sample { value, .. } = context.calibrator.sample().await;
+                assert!(filter.add_sample(value).is_none());
+            }
             let Sample { value, .. } = context.calibrator.sample().await;
-            // TODO: add filtering
-            context.tarer.set_offset(-value);
+            let average = filter.add_sample(value).unwrap();
+            context.tarer.set_offset(average);
+
+            adc.lock().await.power_down();
+            context.state = MeasurementState::Idle;
         }
     }
 }

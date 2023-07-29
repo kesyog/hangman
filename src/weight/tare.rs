@@ -37,7 +37,11 @@ where
         }
     }
 
-    pub fn set_offset(&mut self, offset: T::Output) {
+    pub fn set_offset(&mut self, offset: T::Output)
+    where
+        T::Output: defmt::Format,
+    {
+        defmt::info!("Set tare offset to {}", offset);
         self.offset = offset;
     }
 }
