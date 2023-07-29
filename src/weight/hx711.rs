@@ -113,7 +113,7 @@ impl<'d> Hx711<'d> {
                 n_skips += 1;
                 defmt::info!("Skipping -1 reading");
             } else {
-                defmt::debug!("Raw = {}", value);
+                defmt::trace!("Raw = {}", value);
                 return Some(Sample { timestamp, value });
             }
         }

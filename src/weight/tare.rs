@@ -53,7 +53,7 @@ where
     async fn sample(&mut self) -> Sample<Self::Output> {
         let mut sample = self.sampler.sample().await;
         sample.value = sample.value - self.offset;
-        defmt::debug!("Tared = {}", sample.value);
+        defmt::trace!("Tared = {}", sample.value);
         sample
     }
 }

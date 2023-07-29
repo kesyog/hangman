@@ -32,7 +32,7 @@ impl<T> Calibrator<T> {
 
     fn calibrate(&self, raw_value: i32) -> f32 {
         let value = (raw_value - self.b) as f32 * self.m;
-        defmt::debug!("Calibrated = {}", value);
+        defmt::trace!("Calibrated = {}", value);
         value
     }
 }
