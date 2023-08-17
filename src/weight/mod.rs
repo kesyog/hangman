@@ -15,12 +15,14 @@
 pub mod average;
 mod calibrate;
 pub mod hx711;
+pub mod median;
 mod random;
 mod tare;
 mod task;
 
 extern crate alloc;
 
+use crate::nonvolatile::Nvm;
 use alloc::boxed::Box;
 use core::ops::DerefMut;
 use embassy_sync::blocking_mutex::raw::RawMutex;
@@ -39,6 +41,7 @@ pub type OnTaredMeasurementCb = dyn FnMut(Duration, f32);
 
 pub enum SampleType {
     Raw(Option<Box<OnRawMeasurementCb>>),
+    FilteredRaw(Option<Box<OnRawMeasurementCb>>),
     Calibrated(Option<Box<OnCalibratedMeasurementCb>>),
     Tared(Option<Box<OnTaredMeasurementCb>>),
 }
@@ -54,6 +57,9 @@ impl defmt::Format for Command {
     fn format(&self, fmt: defmt::Formatter) {
         match self {
             Command::StartSampling(SampleType::Raw(_)) => defmt::write!(fmt, "StartSampling (Raw)"),
+            Command::StartSampling(SampleType::FilteredRaw(_)) => {
+                defmt::write!(fmt, "StartSampling (FilteredRaw)")
+            }
             Command::StartSampling(SampleType::Calibrated(_)) => {
                 defmt::write!(fmt, "StartSampling (Calibrated)");
             }
@@ -64,6 +70,12 @@ impl defmt::Format for Command {
             Command::Tare => defmt::write!(fmt, "Tare"),
         }
     }
+}
+
+async fn write_calibration(nvm: &mut Nvm, cal_m: f32, cal_b: i32) {
+    nvm.write_cal_m(cal_m);
+    nvm.write_cal_b(cal_b);
+    nvm.flush().await;
 }
 
 pub struct Sample<T> {

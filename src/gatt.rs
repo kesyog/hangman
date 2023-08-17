@@ -249,13 +249,15 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel) {
     defmt::info!("Starting BLE task");
     let server = server::get();
     loop {
-        crate::leds::singleton_get().lock().await.rgb_blue.set_low();
+        // crate::leds::singleton_get().lock().await.rgb_blue.set_low();
         let conn = advertise(sd).await.unwrap();
         defmt::info!("Peer connected");
         {
+            /*
             let mut leds = crate::leds::singleton_get().lock().await;
             leds.rgb_blue.set_high();
             leds.green.set_low();
+            */
         }
 
         gatt_server::run(&conn, server, |e| match e {
@@ -313,7 +315,7 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel) {
             },
         })
         .await;
-        crate::leds::singleton_get().lock().await.green.set_high();
+        // crate::leds::singleton_get().lock().await.green.set_high();
         // Make sure we stop measuring on disconnect
         measure_ch.send(weight::Command::StopSampling).await;
 

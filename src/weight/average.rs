@@ -26,12 +26,11 @@ impl Accumulator for i32 {
     type Sum = i64;
 }
 
-// To reduce bloat, consider NOT using const generics if there are multiple instances
-#[derive(Default)]
-pub(crate) struct Window<const N: usize, T>
+pub(crate) struct Window<T>
 where
     T: Accumulator,
 {
+    window_size: usize,
     accumulator: T::Sum,
     n_samples: usize,
     // TODO: delete min/max in window
@@ -39,10 +38,23 @@ where
     min: Option<T::Sum>,
 }
 
-impl<const N: usize, T> Window<N, T>
+impl<T> Window<T>
 where
     T: Accumulator,
 {
+    pub fn new(window_size: usize) -> Self
+    where
+        T::Sum: Default,
+    {
+        Self {
+            window_size,
+            accumulator: Default::default(),
+            n_samples: 0,
+            max: None,
+            min: None,
+        }
+    }
+
     pub fn add_sample(&mut self, sample: T) -> Option<T>
     where
         T::Sum: From<T>
@@ -51,9 +63,9 @@ where
             + Div<Output = T::Sum>
             + num::NumCast
             + Copy
+            + Default
             + PartialOrd,
         T: num::NumCast + Copy,
-        Self: Default,
     {
         let sample: T::Sum = sample.into();
         self.accumulator += sample;
@@ -69,13 +81,13 @@ where
             _ => self.min = Some(sample),
         }
 
-        if self.n_samples < N {
+        if self.n_samples < self.window_size {
             return None;
         }
 
         // Remove max and min to reduce the impact of outliers iff window size is above an
         // arbitrary threshold
-        if N > 5 {
+        if self.window_size > 5 {
             self.accumulator -= self.min.unwrap();
             self.accumulator -= self.max.unwrap();
             self.n_samples -= 2;
@@ -88,8 +100,8 @@ where
 
     pub fn reset(&mut self)
     where
-        Self: Default,
+        T::Sum: Default,
     {
-        *self = Self::default();
+        *self = Self::new(self.window_size);
     }
 }

@@ -26,13 +26,15 @@ embedded-alloc = "0.5"
 embedded-storage = "0.3"
 embedded-storage-async = "0.4"
 fix-hidden-lifetime-bug = "0.2.5"
+median = { version = "0.3", default-features = false }
 nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", features = ["nrf52840", "s113", "ble-gatt-server", "ble-peripheral", "critical-section-impl", "defmt", "nightly"] }
 nrf52840-hal = { version = "0.16.0", default-features = false }
 num = { version = "0.4", default-features = false }
 once_cell = { version = "1.18", default-features = false, features = ["critical-section"] }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 rand = { version = "0.8", default-features = false, features = ["nightly"] }
-static_cell = "1"
+static_cell = { version = "1", features = ["nightly"] }
+typenum = "1"
 
 [features]
 console = ["dep:embassy-usb"]

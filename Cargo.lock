@@ -651,6 +651,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "generic-array"
+version = "0.14.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
+dependencies = [
+ "typenum",
+ "version_check",
+]
+
+[[package]]
 name = "half"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -685,6 +695,7 @@ dependencies = [
  "embedded-storage",
  "embedded-storage-async",
  "fix-hidden-lifetime-bug",
+ "median",
  "nrf-softdevice",
  "nrf52840-hal",
  "num",
@@ -692,6 +703,7 @@ dependencies = [
  "panic-probe",
  "rand",
  "static_cell",
+ "typenum",
 ]
 
 [[package]]
@@ -742,6 +754,15 @@ checksum = "c1cc9717a20b1bb222f333e6a92fd32f7d8a18ddc5a3191a11af45dcbf4dcd16"
 dependencies = [
  "autocfg",
  "scopeguard",
+]
+
+[[package]]
+name = "median"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "993f81eac178937d7d54dc7ba7bddd70a526bca92b36d95016add46f59d19754"
+dependencies = [
+ "generic-array",
 ]
 
 [[package]]

@@ -15,7 +15,7 @@
 use super::calibrate::Calibrator;
 use super::hx711::Hx711;
 use super::tare::Tarer;
-use super::{average, Command, Sample, SampleProducerMut, SampleType};
+use super::{average, median::Median, Command, Sample, SampleProducerMut, SampleType};
 use crate::nonvolatile::Nvm;
 use crate::MeasureCommandReceiver;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -23,12 +23,13 @@ use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
 use fix_hidden_lifetime_bug::fix_hidden_lifetime_bug;
 use nrf_softdevice::Softdevice;
-use static_cell::StaticCell;
+use static_cell::make_static;
 
 const THREAD_SLEEP_DELAY: Duration = Duration::from_millis(100);
 
 type SharedAdc = Mutex<NoopRawMutex, Hx711<'static>>;
-type SharedCalibrator = Mutex<NoopRawMutex, Calibrator<&'static SharedAdc>>;
+type SharedFilteredAdc = Mutex<NoopRawMutex, Median<&'static SharedAdc>>;
+type SharedCalibrator = Mutex<NoopRawMutex, Calibrator<&'static SharedFilteredAdc>>;
 
 enum MeasurementState {
     Idle,
@@ -38,6 +39,7 @@ enum MeasurementState {
 struct MeasurementContext {
     state: MeasurementState,
     adc: &'static SharedAdc,
+    median: &'static SharedFilteredAdc,
     calibrator: &'static SharedCalibrator,
     tarer: Tarer<&'static SharedCalibrator>,
 }
@@ -47,27 +49,31 @@ async fn handle_command(cmd: Command, context: &mut MeasurementContext, adc: &Sh
         Command::StartSampling(measurement_cb) => {
             // TODO: check state before doing anything
             {
+                /*
                 let mut leds = crate::leds::singleton_get().lock().await;
                 leds.rgb_red.set_low();
+                */
             }
-            adc.lock().await.power_up();
+            adc.lock().await.power_up().await;
             context.state = MeasurementState::Active(measurement_cb, Instant::now());
         }
         Command::StopSampling => {
             {
+                /*
                 let mut leds = crate::leds::singleton_get().lock().await;
                 leds.rgb_red.set_high();
+                */
             }
             adc.lock().await.power_down();
             context.state = MeasurementState::Idle;
         }
         Command::Tare => {
-            const WARMUP: usize = 5;
-            const FILTER_SIZE: usize = 20;
+            const WARMUP: usize = 80;
+            const FILTER_SIZE: usize = 80;
             for _ in 0..WARMUP {
                 let _ = context.calibrator.sample().await;
             }
-            let mut filter = average::Window::<FILTER_SIZE, f32>::default();
+            let mut filter = average::Window::<f32>::new(FILTER_SIZE);
             for _ in 0..(FILTER_SIZE - 1) {
                 let Sample { value, .. } = context.calibrator.sample().await;
                 assert!(filter.add_sample(value).is_none());
@@ -105,6 +111,12 @@ async fn measure(context: &mut MeasurementContext) {
                 cb(calculate_duration(timestamp), value);
             }
         }
+        SampleType::FilteredRaw(cb) => {
+            let Sample { timestamp, value } = context.median.sample().await;
+            if let Some(cb) = cb {
+                cb(calculate_duration(timestamp), value);
+            }
+        }
         SampleType::Calibrated(cb) => {
             let Sample { timestamp, value } = context.calibrator.sample().await;
             if let Some(cb) = cb {
@@ -118,7 +130,6 @@ async fn measure(context: &mut MeasurementContext) {
             }
         }
     };
-    //measurement_cb(duration_since_start, value);
 }
 
 #[embassy_executor::task]
@@ -128,22 +139,21 @@ pub async fn task_function(
     sd: &'static Softdevice,
 ) {
     defmt::info!("Starting measurement task");
-    static HX711: StaticCell<SharedAdc> = StaticCell::new();
-    let adc: &SharedAdc = HX711.init(Mutex::new(adc));
+    let adc: &SharedAdc = make_static!(Mutex::new(adc));
+    let median: &'static SharedFilteredAdc = make_static!(Mutex::new(Median::new(adc)));
 
-    static CALIBRATOR: StaticCell<Mutex<NoopRawMutex, Calibrator<&'static SharedAdc>>> =
-        StaticCell::new();
     let nvm = Nvm::new(sd);
     let cal_m = nvm.read_cal_m();
     let cal_b = nvm.read_cal_b();
     defmt::info!("Loaded calibration: m={} b={}", cal_m, cal_b);
     let calibrator: &SharedCalibrator =
-        CALIBRATOR.init(Mutex::new(Calibrator::new(adc, cal_m, cal_b)));
+        make_static!(Mutex::new(Calibrator::new(median, cal_m, cal_b)));
 
     let tarer = Tarer::new(calibrator);
     let mut context = MeasurementContext {
         state: MeasurementState::Idle,
         adc,
+        median,
         calibrator,
         tarer,
     };

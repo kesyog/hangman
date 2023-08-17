@@ -41,11 +41,13 @@ use embassy_sync::{
     channel::{Channel, Receiver},
     mutex::Mutex,
 };
+use embassy_time::{Duration, Timer};
 use embedded_alloc::Heap;
+use nrf52840_hal::prelude::_embedded_hal_blocking_delay_DelayMs;
 use nrf52840_hal::Delay as SysTickDelay;
 use nrf_softdevice::{self as _, SocEvent, Softdevice};
 use panic_probe as _;
-use static_cell::StaticCell;
+use static_cell::make_static;
 use weight::{average, hx711::Hx711};
 
 #[cfg(feature = "console")]
@@ -136,8 +138,7 @@ async fn main(spawner: Spawner) -> ! {
     }
     let p = embassy_nrf::init(config());
     let syst = embassy_nrf::pac::CorePeripherals::take().unwrap().SYST;
-    static DELAY: StaticCell<Mutex<NoopRawMutex, SysTickDelay>> = StaticCell::new();
-    let delay: &'static SharedDelay = DELAY.init(Mutex::new(SysTickDelay::new(syst)));
+    let delay: &'static SharedDelay = make_static!(Mutex::new(SysTickDelay::new(syst)));
     let green_led = gpio::Output::new(
         AnyPin::from(p.P0_06),
         gpio::Level::High,
@@ -167,12 +168,9 @@ async fn main(spawner: Spawner) -> ! {
     let hx711 = Hx711::new(hx711_data, hx711_clock, delay);
 
     // USB setup
-    let usb_detect_ref: &SoftwareVbusDetect = {
-        static USB_DETECT: StaticCell<SoftwareVbusDetect> = StaticCell::new();
-        // Hack: pretend USB is already connected. not a bad assumption since this is a dongle
-        // There might be a race condition at startup between USB init and SD init.
-        USB_DETECT.init(SoftwareVbusDetect::new(true, true))
-    };
+    // Hack: pretend USB is already connected. not a bad assumption since this is a dongle
+    // There might be a race condition at startup between USB init and SD init.
+    let usb_detect_ref: &SoftwareVbusDetect = make_static!(SoftwareVbusDetect::new(true, true));
 
     let sd = setup_softdevice();
     gatt::server::init(sd).unwrap();
@@ -184,8 +182,7 @@ async fn main(spawner: Spawner) -> ! {
     #[cfg(feature = "console")]
     let (usb, class) = console::board::setup_usb(p.USBD, Irqs, usb_detect_ref);
 
-    static GATT_MEASUREMENT_CHANNEL: StaticCell<MeasureCommandChannel> = StaticCell::new();
-    let ch = GATT_MEASUREMENT_CHANNEL.init(Channel::new());
+    let ch: &MeasureCommandChannel = make_static!(Channel::new());
 
     // Start tasks
     #[cfg(feature = "console")]
@@ -200,25 +197,29 @@ async fn main(spawner: Spawner) -> ! {
     let button_sender = ch.sender();
     let mut active = false;
 
+    Timer::after(Duration::from_millis(1000)).await;
+    button_sender.send(weight::Command::Tare).await;
+
     // Temporary janky flow to calibrate / test calibration
     // Use button to start/stop measurements
     loop {
-        button.wait_for_falling_edge().await;
         defmt::debug!("button press");
+        button.wait_for_falling_edge().await;
         if active {
             button_sender.send(weight::Command::StopSampling).await;
         } else {
-            // Use Window::<N, i32> and SampleType::Raw for calibrating
+            // Use Window::<N, i32> and SampleType::FilteredRaw for calibrating
             // Use Window::<N, f32> and SampleType::Calibrated for checking calibration
-            let mut average = average::Window::<20, f32>::default();
+            let mut average = average::Window::<f32>::new(80);
             button_sender
-                .send(weight::Command::StartSampling(
-                    weight::SampleType::Calibrated(Some(Box::new(move |_, value| {
+                .send(weight::Command::StartSampling(weight::SampleType::Tared(
+                    Some(Box::new(move |_, value| {
                         if let Some(average) = average.add_sample(value) {
-                            defmt::info!("Averaged: {}", average);
+                            // defmt::info!("Averaged: {}", average);
+                            defmt::info!("Averaged: {}", average / 0.454);
                         }
-                    }))),
-                ))
+                    })),
+                )))
                 .await;
         }
         active = !active;

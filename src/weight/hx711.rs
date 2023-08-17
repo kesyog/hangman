@@ -18,8 +18,10 @@
 use super::{Sample, SampleProducerMut};
 use crate::SharedDelay;
 use embassy_nrf::gpio::{AnyPin, Input, Output};
-use embassy_time::Instant;
-use nrf52840_hal::prelude::_embedded_hal_blocking_delay_DelayUs;
+use embassy_time::{Duration, Instant, Timer};
+use nrf52840_hal::prelude::{
+    _embedded_hal_blocking_delay_DelayMs, _embedded_hal_blocking_delay_DelayUs,
+};
 
 enum PowerState {
     Off,
@@ -57,8 +59,10 @@ impl<'d> Hx711<'d> {
         self.state = PowerState::Off;
     }
 
-    pub fn power_up(&mut self) {
+    pub async fn power_up(&mut self) {
         self.clock.set_low();
+        // Typical output settling time is 400ms at 10Hz or 50ms at 80Hz sample rate
+        Timer::after(Duration::from_millis(50)).await;
         self.state = PowerState::On;
     }
 
@@ -107,8 +111,7 @@ impl<'d> Hx711<'d> {
             // Unsigned for sane shifting and 32-bit because there is no u24 Rust primitive. Convert it
             // to a signed integer so that it is interpreted correctly.
             let value = convert_i24_to_i32(raw_reading);
-            // HX711 sometimes returns -1 for some reason
-            // TODO: investigate
+            // HX711 sometimes spontaneously returns -1 (0xFFFFFF)
             if value == -1 && n_skips < 3 {
                 n_skips += 1;
                 defmt::info!("Skipping -1 reading");
@@ -125,7 +128,7 @@ impl<'d> SampleProducerMut for Hx711<'d> {
 
     async fn sample(&mut self) -> Sample<<Hx711<'d> as SampleProducerMut>::Output> {
         if !self.is_powered() {
-            self.power_up();
+            self.power_up().await;
         }
         self.take_measurement().await.unwrap()
     }
@@ -136,7 +139,7 @@ impl<'d> SampleProducerMut for &mut Hx711<'d> {
 
     async fn sample(&mut self) -> Sample<<Hx711<'d> as SampleProducerMut>::Output> {
         if !self.is_powered() {
-            self.power_up();
+            self.power_up().await;
         }
         self.take_measurement().await.unwrap()
     }
