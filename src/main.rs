@@ -43,7 +43,6 @@ use embassy_sync::{
 };
 use embassy_time::{Duration, Timer};
 use embedded_alloc::Heap;
-use nrf52840_hal::prelude::_embedded_hal_blocking_delay_DelayMs;
 use nrf52840_hal::Delay as SysTickDelay;
 use nrf_softdevice::{self as _, SocEvent, Softdevice};
 use panic_probe as _;

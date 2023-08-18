@@ -13,15 +13,11 @@
 // limitations under the License.
 
 /// Hx711 driver using embassy_nrf-friendly types
-///
-/// TODO: can we replace with https://docs.rs/hx711 since we're using mostly operations anyway
 use super::{Sample, SampleProducerMut};
 use crate::SharedDelay;
 use embassy_nrf::gpio::{AnyPin, Input, Output};
 use embassy_time::{Duration, Instant, Timer};
-use nrf52840_hal::prelude::{
-    _embedded_hal_blocking_delay_DelayMs, _embedded_hal_blocking_delay_DelayUs,
-};
+use nrf52840_hal::prelude::_embedded_hal_blocking_delay_DelayUs;
 
 enum PowerState {
     Off,

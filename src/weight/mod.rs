@@ -58,7 +58,7 @@ impl defmt::Format for Command {
         match self {
             Command::StartSampling(SampleType::Raw(_)) => defmt::write!(fmt, "StartSampling (Raw)"),
             Command::StartSampling(SampleType::FilteredRaw(_)) => {
-                defmt::write!(fmt, "StartSampling (FilteredRaw)")
+                defmt::write!(fmt, "StartSampling (FilteredRaw)");
             }
             Command::StartSampling(SampleType::Calibrated(_)) => {
                 defmt::write!(fmt, "StartSampling (Calibrated)");
