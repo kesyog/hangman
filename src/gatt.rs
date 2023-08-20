@@ -41,6 +41,8 @@ const ADVERTISING_DATA: &[u8] = &[
 
 // TODO: make this the source of truth for ADVERTISING_DATA
 const DUMMY_ADVERTISING_NAME: &[u8] = b"Progressor_1719";
+const DUMMY_VERSION_NUMBER: &[u8] = b"1.2.3.4";
+const DUMMY_ID: u32 = 42;
 
 #[rustfmt::skip]
 const SCAN_RESPONSE_DATA: &[u8] = &[
@@ -70,12 +72,16 @@ pub enum DataOpcode {
     BatteryVoltage(u32),
     Weight(f32, u32),
     LowPowerWarning,
+    AppVersion(&'static [u8]),
+    ProgressorId(u32),
 }
 
 impl DataOpcode {
     fn opcode(&self) -> u8 {
         match self {
-            DataOpcode::BatteryVoltage(..) => 0x00,
+            DataOpcode::BatteryVoltage(..)
+            | DataOpcode::AppVersion(..)
+            | DataOpcode::ProgressorId(..) => 0x00,
             DataOpcode::Weight(..) => 0x01,
             DataOpcode::LowPowerWarning => 0x04,
         }
@@ -83,9 +89,10 @@ impl DataOpcode {
 
     fn length(&self) -> u8 {
         match self {
-            DataOpcode::BatteryVoltage(..) => 4,
+            DataOpcode::BatteryVoltage(..) | DataOpcode::ProgressorId(..) => 4,
             DataOpcode::Weight(..) => 8,
             DataOpcode::LowPowerWarning => 0,
+            DataOpcode::AppVersion(version) => version.len() as u8,
         }
     }
 
@@ -100,6 +107,12 @@ impl DataOpcode {
                 value[4..].copy_from_slice(&timestamp.to_le_bytes());
             }
             DataOpcode::LowPowerWarning => (),
+            DataOpcode::ProgressorId(id) => {
+                value[0..4].copy_from_slice(&id.to_le_bytes());
+            }
+            DataOpcode::AppVersion(version) => {
+                value[0..version.len()].copy_from_slice(version);
+            }
         };
         value
     }
@@ -159,6 +172,7 @@ pub enum ControlOpcode {
     ClearErrorInfo = 0x6D,
     Shutdown = 0x6E,
     SampleBattery = 0x6F,
+    GetProgressorID = 0x70,
 }
 
 #[derive(Copy, Clone, Pod, Zeroable)]
@@ -195,6 +209,7 @@ impl TryFrom<ControlPoint> for ControlOpcode {
             0x6D => Ok(ControlOpcode::ClearErrorInfo),
             0x6E => Ok(ControlOpcode::Shutdown),
             0x6F => Ok(ControlOpcode::SampleBattery),
+            0x70 => Ok(ControlOpcode::GetProgressorID),
             other => Err(other),
         }
     }
@@ -272,6 +287,25 @@ fn notify_data(data: DataOpcode, connection: &Connection) -> Result<(), NotifyVa
     server::get().progressor.data_notify(connection, &raw_data)
 }
 
+// Test function for sending out raw notifications
+#[allow(dead_code)]
+fn raw_notify_data(
+    opcode: u8,
+    raw_payload: &[u8],
+    connection: &Connection,
+) -> Result<(), NotifyValueError> {
+    assert!(raw_payload.len() <= 8);
+    let mut payload = [0; 8];
+    payload[0..raw_payload.len()].copy_from_slice(raw_payload);
+
+    let data = DataPoint {
+        opcode,
+        length: raw_payload.len().try_into().unwrap(),
+        value: payload,
+    };
+    server::get().progressor.data_notify(connection, &data)
+}
+
 // not really gatt. oops
 async fn advertise(sd: &Softdevice) -> Result<Connection, AdvertiseError> {
     let config = ble::peripheral::Config::default();
@@ -343,6 +377,28 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel) {
                             if measure_ch.try_send(weight::Command::StopSampling).is_err() {
                                 defmt::error!("Failed to send StopSampling");
                             }
+                        }
+                        Ok(ControlOpcode::SampleBattery) => {
+                            // Fake a battery voltage measurement
+                            if notify_data(DataOpcode::BatteryVoltage(3000), &conn).is_err() {
+                                defmt::error!("Battery voltage response failed to send");
+                            }
+                        }
+                        Ok(ControlOpcode::GetAppVersion) => {
+                            if notify_data(DataOpcode::AppVersion(DUMMY_VERSION_NUMBER), &conn)
+                                .is_err()
+                            {
+                                defmt::error!("Response to GetAppVersion failed");
+                            };
+                        }
+                        Ok(ControlOpcode::GetProgressorID) => {
+                            if notify_data(DataOpcode::ProgressorId(DUMMY_ID), &conn).is_err() {
+                                defmt::error!("Response to GetProgressorID failed");
+                            };
+                        }
+                        Ok(ControlOpcode::Shutdown) => {
+                            // TODO: make a note to go to sleep without advertising after
+                            // disconnect
                         }
                         _ => (),
                     }
