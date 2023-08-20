@@ -16,19 +16,9 @@
 #![cfg_attr(not(test), no_std)]
 #![feature(type_alias_impl_trait)]
 #![feature(async_fn_in_trait)]
-// TODO: remove once crate is closer to feature-complete
-#![allow(dead_code)]
-
-#[cfg(feature = "console")]
-mod console;
-mod gatt;
-mod leds;
-mod nonvolatile;
-mod weight;
 
 extern crate alloc;
 
-use alloc::boxed::Box;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::{
@@ -36,23 +26,20 @@ use embassy_nrf::{
     gpio::{self, AnyPin, Pin},
     usb::vbus_detect::SoftwareVbusDetect,
 };
-use embassy_sync::{
-    blocking_mutex::raw::NoopRawMutex,
-    channel::{Channel, Receiver},
-    mutex::Mutex,
-};
+use embassy_sync::{channel::Channel, mutex::Mutex};
 use embassy_time::{Duration, Timer};
 use embedded_alloc::Heap;
+#[cfg(feature = "console")]
+use hangman::console;
+use hangman::{
+    gatt, leds,
+    weight::{self, hx711::Hx711},
+    MeasureCommandChannel, SharedDelay,
+};
 use nrf52840_hal::Delay as SysTickDelay;
 use nrf_softdevice::{self as _, SocEvent, Softdevice};
 use panic_probe as _;
 use static_cell::make_static;
-use weight::{average, hx711::Hx711};
-
-#[cfg(feature = "console")]
-embassy_nrf::bind_interrupts!(struct Irqs {
-    USBD => embassy_nrf::usb::InterruptHandler<embassy_nrf::peripherals::USBD>;
-});
 
 #[global_allocator]
 /// Create a small heap. Not sure how to pass around closures without one.
@@ -60,14 +47,10 @@ static HEAP: Heap = Heap::empty();
 // TODO: how to enforce this in the linker script?
 const HEAP_SIZE: usize = 1024;
 
-// Leave some room for multiple commands to be queued. If this is too small, we can get overwhelmed
-// and deadlock.
-const MEASURE_COMMAND_CHANNEL_SIZE: usize = 5;
-
-type SharedDelay = Mutex<NoopRawMutex, SysTickDelay>;
-type MeasureCommandChannel = Channel<NoopRawMutex, weight::Command, MEASURE_COMMAND_CHANNEL_SIZE>;
-type MeasureCommandReceiver =
-    Receiver<'static, NoopRawMutex, weight::Command, MEASURE_COMMAND_CHANNEL_SIZE>;
+#[cfg(feature = "console")]
+embassy_nrf::bind_interrupts!(struct Irqs {
+    USBD => embassy_nrf::usb::InterruptHandler<embassy_nrf::peripherals::USBD>;
+});
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice, usb_detect: &'static SoftwareVbusDetect) -> ! {
@@ -84,41 +67,6 @@ async fn softdevice_task(sd: &'static Softdevice, usb_detect: &'static SoftwareV
     .await
 }
 
-fn setup_softdevice() -> &'static mut Softdevice {
-    use nrf_softdevice::raw;
-    let config = nrf_softdevice::Config {
-        clock: Some(raw::nrf_clock_lf_cfg_t {
-            source: raw::NRF_CLOCK_LF_SRC_XTAL as u8,
-            rc_ctiv: 0,
-            rc_temp_ctiv: 0,
-            accuracy: raw::NRF_CLOCK_LF_ACCURACY_500_PPM as u8,
-        }),
-        conn_gap: Some(raw::ble_gap_conn_cfg_t {
-            conn_count: 2,
-            event_length: 24,
-        }),
-        conn_gatt: Some(raw::ble_gatt_conn_cfg_t { att_mtu: 256 }),
-        gatts_attr_tab_size: Some(raw::ble_gatts_cfg_attr_tab_size_t {
-            attr_tab_size: 2048,
-        }),
-        gap_role_count: Some(raw::ble_gap_cfg_role_count_t {
-            adv_set_count: 1,
-            periph_role_count: 2,
-        }),
-        gap_device_name: Some(raw::ble_gap_cfg_device_name_t {
-            p_value: (b"Progressor_1719" as *const u8).cast_mut(),
-            current_len: 15,
-            max_len: 15,
-            write_perm: unsafe { core::mem::zeroed() },
-            _bitfield_1: raw::ble_gap_cfg_device_name_t::new_bitfield_1(
-                raw::BLE_GATTS_VLOC_STACK as u8,
-            ),
-        }),
-        ..Default::default()
-    };
-    Softdevice::enable(&config)
-}
-
 fn config() -> Config {
     // Interrupt priority levels 0, 1, and 4 are reserved for the SoftDevice
     let mut config = Config::default();
@@ -131,7 +79,7 @@ fn config() -> Config {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
-    defmt::println!("Start!");
+    defmt::println!("Start {}!", core::env!("CARGO_BIN_NAME"));
     unsafe {
         HEAP.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE);
     }
@@ -171,7 +119,7 @@ async fn main(spawner: Spawner) -> ! {
     // There might be a race condition at startup between USB init and SD init.
     let usb_detect_ref: &SoftwareVbusDetect = make_static!(SoftwareVbusDetect::new(true, true));
 
-    let sd = setup_softdevice();
+    let sd = Softdevice::enable(&gatt::softdevice_config());
     gatt::server::init(sd).unwrap();
     spawner.must_spawn(softdevice_task(sd, usb_detect_ref));
 
@@ -192,35 +140,14 @@ async fn main(spawner: Spawner) -> ! {
     spawner.must_spawn(gatt::ble_task(sd, ch.sender()));
     spawner.must_spawn(weight::task_function(ch.receiver(), hx711, sd));
 
-    let mut button = gpio::Input::new(p.P1_06, gpio::Pull::Up);
-    let button_sender = ch.sender();
-    let mut active = false;
+    // let mut button = gpio::Input::new(p.P1_06, gpio::Pull::Up);
 
     Timer::after(Duration::from_millis(1000)).await;
-    button_sender.send(weight::Command::Tare).await;
+    ch.sender().send(weight::Command::Tare).await;
 
     // Temporary janky flow to calibrate / test calibration
     // Use button to start/stop measurements
     loop {
-        defmt::debug!("button press");
-        button.wait_for_falling_edge().await;
-        if active {
-            button_sender.send(weight::Command::StopSampling).await;
-        } else {
-            // Use Window::<N, i32> and SampleType::FilteredRaw for calibrating
-            // Use Window::<N, f32> and SampleType::Calibrated for checking calibration
-            let mut average = average::Window::<f32>::new(80);
-            button_sender
-                .send(weight::Command::StartSampling(weight::SampleType::Tared(
-                    Some(Box::new(move |_, value| {
-                        if let Some(average) = average.add_sample(value) {
-                            // defmt::info!("Averaged: {}", average);
-                            defmt::info!("Averaged: {}", average / 0.454);
-                        }
-                    })),
-                )))
-                .await;
-        }
-        active = !active;
+        core::future::pending::<()>().await;
     }
 }

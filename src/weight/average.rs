@@ -14,7 +14,7 @@
 
 use core::ops::{AddAssign, Div, SubAssign};
 
-pub(crate) trait Accumulator {
+pub trait Accumulator {
     type Sum;
 }
 
@@ -26,7 +26,7 @@ impl Accumulator for i32 {
     type Sum = i64;
 }
 
-pub(crate) struct Window<T>
+pub struct Window<T>
 where
     T: Accumulator,
 {

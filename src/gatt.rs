@@ -39,6 +39,9 @@ const ADVERTISING_DATA: &[u8] = &[
     b'P', b'r', b'o', b'g', b'r', b'e', b's', b's', b'o', b'r', b'_', b'1', b'7', b'1', b'9',
 ];
 
+// TODO: make this the source of truth for ADVERTISING_DATA
+const DUMMY_ADVERTISING_NAME: &[u8] = b"Progressor_1719";
+
 #[rustfmt::skip]
 const SCAN_RESPONSE_DATA: &[u8] = &[
     17,
@@ -229,7 +232,42 @@ struct Server {
     progressor: ProgressorService,
 }
 
-pub fn notify_data(data: DataOpcode, connection: &Connection) -> Result<(), NotifyValueError> {
+pub fn softdevice_config() -> nrf_softdevice::Config {
+    use nrf_softdevice::raw;
+    let advertised_name_len: u16 = DUMMY_ADVERTISING_NAME.len() as u16;
+    nrf_softdevice::Config {
+        clock: Some(raw::nrf_clock_lf_cfg_t {
+            source: raw::NRF_CLOCK_LF_SRC_XTAL as u8,
+            rc_ctiv: 0,
+            rc_temp_ctiv: 0,
+            accuracy: raw::NRF_CLOCK_LF_ACCURACY_500_PPM as u8,
+        }),
+        conn_gap: Some(raw::ble_gap_conn_cfg_t {
+            conn_count: 2,
+            event_length: 24,
+        }),
+        conn_gatt: Some(raw::ble_gatt_conn_cfg_t { att_mtu: 256 }),
+        gatts_attr_tab_size: Some(raw::ble_gatts_cfg_attr_tab_size_t {
+            attr_tab_size: 2048,
+        }),
+        gap_role_count: Some(raw::ble_gap_cfg_role_count_t {
+            adv_set_count: 1,
+            periph_role_count: 2,
+        }),
+        gap_device_name: Some(raw::ble_gap_cfg_device_name_t {
+            p_value: DUMMY_ADVERTISING_NAME.as_ptr().cast_mut(),
+            current_len: advertised_name_len,
+            max_len: advertised_name_len,
+            write_perm: unsafe { core::mem::zeroed() },
+            _bitfield_1: raw::ble_gap_cfg_device_name_t::new_bitfield_1(
+                raw::BLE_GATTS_VLOC_STACK as u8,
+            ),
+        }),
+        ..Default::default()
+    }
+}
+
+fn notify_data(data: DataOpcode, connection: &Connection) -> Result<(), NotifyValueError> {
     let raw_data = DataPoint::from(data);
     server::get().progressor.data_notify(connection, &raw_data)
 }
