@@ -138,7 +138,7 @@ pub async fn task_function(
     adc: Hx711<'static>,
     sd: &'static Softdevice,
 ) {
-    defmt::info!("Starting measurement task");
+    defmt::debug!("Starting measurement task");
     let adc: &SharedAdc = make_static!(Mutex::new(adc));
     let median: &'static SharedFilteredAdc = make_static!(Mutex::new(Median::new(adc)));
 
@@ -160,7 +160,7 @@ pub async fn task_function(
 
     loop {
         if let Ok(cmd) = rx.try_recv() {
-            defmt::debug!("Measure task received {}", cmd);
+            defmt::info!("Measure task received {} command", cmd);
             handle_command(cmd, &mut context, adc).await;
         }
         if let MeasurementState::Active(..) = context.state {

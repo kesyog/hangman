@@ -28,7 +28,7 @@ enum Mode {
     CheckCalibration,
 }
 
-const SAMPLING_RATE_HZ: usize = 10;
+const SAMPLING_RATE_HZ: usize = 80;
 
 #[global_allocator]
 /// Create a small heap. Not sure how to pass around closures without one.

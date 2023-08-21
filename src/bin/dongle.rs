@@ -29,6 +29,8 @@ use embassy_nrf::{
 use embassy_sync::{channel::Channel, mutex::Mutex};
 use embassy_time::{Duration, Timer};
 use embedded_alloc::Heap;
+#[cfg(feature = "console")]
+use hangman::console;
 use hangman::{
     button::{self, Button},
     gatt, leds,
@@ -45,6 +47,11 @@ use static_cell::make_static;
 static HEAP: Heap = Heap::empty();
 // TODO: how to enforce this in the linker script?
 const HEAP_SIZE: usize = 1024;
+
+#[cfg(feature = "console")]
+embassy_nrf::bind_interrupts!(struct Irqs {
+    USBD => embassy_nrf::usb::InterruptHandler<embassy_nrf::peripherals::USBD>;
+});
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice, usb_detect: &'static SoftwareVbusDetect) -> ! {
@@ -122,19 +129,24 @@ async fn main(spawner: Spawner) -> ! {
     // It's recommended to start the SoftDevice before doing anything else
     embassy_futures::yield_now().await;
 
+    #[cfg(feature = "console")]
+    let (usb, class) = console::board::setup_usb(p.USBD, Irqs, usb_detect_ref);
+
     let ch: &MeasureCommandChannel = make_static!(Channel::new());
 
     // Start tasks
-    // Use SW1 = power button for wakeup
-    let wakeup_button = Button::new(p.P0_29.degrade(), button::Polarity::ActiveLow, true);
+    #[cfg(feature = "console")]
+    {
+        spawner.must_spawn(console::task::usb_task(usb));
+        spawner.must_spawn(console::task::echo_task(class));
+    }
+    let wakeup_button = Button::new(p.P1_06.degrade(), button::Polarity::ActiveLow, true);
     spawner.must_spawn(gatt::ble_task(sd, ch.sender(), wakeup_button));
     spawner.must_spawn(weight::task_function(ch.receiver(), hx711, sd));
 
     Timer::after(Duration::from_millis(1000)).await;
     ch.sender().send(weight::Command::Tare).await;
 
-    // TODO: add back manual calibration (or better yet implement calibration over BLE)
-    // let calibration_button = Button::new(p.P1_06.degrade(), button::Polarity::ActiveLow, true);
     loop {
         core::future::pending::<()>().await;
     }

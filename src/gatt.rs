@@ -14,8 +14,8 @@
 
 extern crate alloc;
 
-use crate::weight;
-use crate::MEASURE_COMMAND_CHANNEL_SIZE;
+use crate::button::Button;
+use crate::{weight, MEASURE_COMMAND_CHANNEL_SIZE};
 use alloc::boxed::Box;
 use bytemuck_derive::{Pod, Zeroable};
 use defmt::Format;
@@ -29,6 +29,8 @@ use nrf_softdevice::{ble, raw as raw_sd, Softdevice};
 
 type MeasureChannel = Sender<'static, NoopRawMutex, weight::Command, MEASURE_COMMAND_CHANNEL_SIZE>;
 
+const ADVERTISING_TIMEOUT_SEC: u16 = 3 * 60;
+
 #[rustfmt::skip]
 const ADVERTISING_DATA: &[u8] = &[
     2,
@@ -40,7 +42,7 @@ const ADVERTISING_DATA: &[u8] = &[
 ];
 
 // TODO: make this the source of truth for ADVERTISING_DATA
-const DUMMY_ADVERTISING_NAME: &[u8] = b"Progressor_1719";
+const ADVERTISED_NAME: &[u8] = b"Progressor_1719";
 const DUMMY_VERSION_NUMBER: &[u8] = b"1.2.3.4";
 const DUMMY_ID: u32 = 42;
 
@@ -249,7 +251,7 @@ struct Server {
 
 pub fn softdevice_config() -> nrf_softdevice::Config {
     use nrf_softdevice::raw;
-    let advertised_name_len: u16 = DUMMY_ADVERTISING_NAME.len() as u16;
+    let advertised_name_len: u16 = ADVERTISED_NAME.len() as u16;
     nrf_softdevice::Config {
         clock: Some(raw::nrf_clock_lf_cfg_t {
             source: raw::NRF_CLOCK_LF_SRC_XTAL as u8,
@@ -270,7 +272,7 @@ pub fn softdevice_config() -> nrf_softdevice::Config {
             periph_role_count: 2,
         }),
         gap_device_name: Some(raw::ble_gap_cfg_device_name_t {
-            p_value: DUMMY_ADVERTISING_NAME.as_ptr().cast_mut(),
+            p_value: ADVERTISED_NAME.as_ptr().cast_mut(),
             current_len: advertised_name_len,
             max_len: advertised_name_len,
             write_perm: unsafe { core::mem::zeroed() },
@@ -308,7 +310,11 @@ fn raw_notify_data(
 
 // not really gatt. oops
 async fn advertise(sd: &Softdevice) -> Result<Connection, AdvertiseError> {
-    let config = ble::peripheral::Config::default();
+    let config = ble::peripheral::Config {
+        // Timeout is passed as # of 10 ms periods
+        timeout: Some(ADVERTISING_TIMEOUT_SEC * (1000 / 10)),
+        ..Default::default()
+    };
     let adv = ble::peripheral::ConnectableAdvertisement::ScannableUndirected {
         adv_data: ADVERTISING_DATA,
         scan_data: SCAN_RESPONSE_DATA,
@@ -317,12 +323,37 @@ async fn advertise(sd: &Softdevice) -> Result<Connection, AdvertiseError> {
 }
 
 #[embassy_executor::task]
-pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel) {
-    defmt::info!("Starting BLE task");
+pub async fn ble_task(
+    sd: &'static Softdevice,
+    measure_ch: MeasureChannel,
+    mut wakeup_button: Button,
+) {
+    defmt::debug!("Starting BLE task");
     let server = server::get();
     loop {
+        defmt::info!("BLE task waiting for button press");
+        // Require a button press before (re)starting advertising to save power
+        wakeup_button.wait_for_press().await;
         // crate::leds::singleton_get().lock().await.rgb_blue.set_low();
-        let conn = advertise(sd).await.unwrap();
+        const ADVERTISED_NAME_STR: Result<&str, core::str::Utf8Error> =
+            core::str::from_utf8(ADVERTISED_NAME);
+        defmt::info!("Advertising as {}", ADVERTISED_NAME_STR.unwrap());
+        let conn: Connection = match advertise(sd).await {
+            Ok(conn) => conn,
+            Err(AdvertiseError::Timeout) => {
+                defmt::warn!("Advertising timeout");
+                // TODO: Enter POWER OFF here to save even more power
+                continue;
+            }
+            Err(AdvertiseError::NoFreeConn) => {
+                defmt::error!("No free connection");
+                continue;
+            }
+            Err(AdvertiseError::Raw(err)) => {
+                defmt::error!("Advertising error: {}", err as u32);
+                continue;
+            }
+        };
         defmt::info!("Peer connected");
         {
             /*
