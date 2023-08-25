@@ -21,7 +21,7 @@ use bytemuck_derive::{Pod, Zeroable};
 use defmt::Format;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Sender;
-use embassy_time::Duration;
+use embassy_time::{Duration, Timer};
 use nrf_softdevice::ble::gatt_server::NotifyValueError;
 use nrf_softdevice::ble::peripheral::AdvertiseError;
 use nrf_softdevice::ble::{gatt_server, Connection, GattValue};
@@ -322,128 +322,132 @@ async fn advertise(sd: &Softdevice) -> Result<Connection, AdvertiseError> {
     ble::peripheral::advertise_connectable(sd, adv, &config).await
 }
 
+async fn system_off(measure_ch: MeasureChannel, wakeup_button: Button) -> ! {
+    // We shouldn't be sampling at this point, but just in case, stop sampling here.
+    // 1. We want the ADC to be powered down while we are asleep
+    // 2. Our system_off routine _might_ not work properly if there's a pending gpio
+    //    event
+    if measure_ch.try_send(weight::Command::StopSampling).is_err() {
+        defmt::error!("Failed to send StopSampling");
+    }
+    Timer::after(Duration::from_millis(1000)).await;
+    // We won't return from this
+    // SAFETY: there are no pending GPIO events
+    unsafe { crate::sleep::system_off(wakeup_button).await }
+}
+
 #[embassy_executor::task]
-pub async fn ble_task(
-    sd: &'static Softdevice,
-    measure_ch: MeasureChannel,
-    mut wakeup_button: Button,
-) {
+pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel, wakeup_button: Button) {
     defmt::debug!("Starting BLE task");
     let server = server::get();
-    loop {
-        defmt::info!("BLE task waiting for button press");
-        // Require a button press before (re)starting advertising to save power
-        wakeup_button.wait_for_press().await;
-        // crate::leds::singleton_get().lock().await.rgb_blue.set_low();
-        const ADVERTISED_NAME_STR: Result<&str, core::str::Utf8Error> =
-            core::str::from_utf8(ADVERTISED_NAME);
-        defmt::info!("Advertising as {}", ADVERTISED_NAME_STR.unwrap());
-        let conn: Connection = match advertise(sd).await {
-            Ok(conn) => conn,
-            Err(AdvertiseError::Timeout) => {
-                defmt::warn!("Advertising timeout");
-                // TODO: Enter POWER OFF here to save even more power
-                continue;
-            }
-            Err(AdvertiseError::NoFreeConn) => {
-                defmt::error!("No free connection");
-                continue;
-            }
-            Err(AdvertiseError::Raw(err)) => {
-                defmt::error!("Advertising error: {}", err as u32);
-                continue;
-            }
-        };
-        defmt::info!("Peer connected");
-        {
-            /*
-            let mut leds = crate::leds::singleton_get().lock().await;
-            leds.rgb_blue.set_high();
-            leds.green.set_low();
-            */
+
+    // crate::leds::singleton_get().lock().await.rgb_blue.set_low();
+    const ADVERTISED_NAME_STR: Result<&str, core::str::Utf8Error> =
+        core::str::from_utf8(ADVERTISED_NAME);
+    defmt::info!("Advertising as {}", ADVERTISED_NAME_STR.unwrap());
+    let conn: Connection = match advertise(sd).await {
+        Ok(conn) => conn,
+        Err(AdvertiseError::Timeout) => {
+            defmt::warn!("Advertising timeout");
+            system_off(measure_ch, wakeup_button).await
         }
-
-        gatt_server::run(&conn, server, |e| match e {
-            ServerEvent::Progressor(e) => match e {
-                ProgressorServiceEvent::ControlWrite(val) => {
-                    let control_op = ControlOpcode::try_from(val);
-                    match control_op {
-                        Ok(op) => defmt::info!("ProgressorService.ControlWrite: {}", op),
-                        Err(op) => defmt::warn!("ProgressorService.ControlWrite: 0x{:02X}", op),
-                    }
-                    match control_op {
-                        Ok(ControlOpcode::Tare) => {
-                            if measure_ch.try_send(weight::Command::Tare).is_err() {
-                                defmt::error!("Failed to send Tare");
-                            }
-                        }
-                        Ok(ControlOpcode::StartMeasurement) => {
-                            let notify_cb = Box::new({
-                                let conn = conn.clone();
-                                move |duration_since_start: Duration, measurement: f32| {
-                                    if notify_data(
-                                        DataOpcode::Weight(
-                                            measurement,
-                                            u32::try_from(duration_since_start.as_micros())
-                                                .unwrap(),
-                                        ),
-                                        &conn,
-                                    )
-                                    .is_err()
-                                    {
-                                        defmt::error!("Notify failed");
-                                    }
-                                }
-                            });
-                            if measure_ch
-                                .try_send(weight::Command::StartSampling(
-                                    weight::SampleType::Tared(Some(notify_cb)),
-                                ))
-                                .is_err()
-                            {
-                                defmt::error!("Failed to send StartSampling");
-                            }
-                        }
-                        Ok(ControlOpcode::StopMeasurement) => {
-                            if measure_ch.try_send(weight::Command::StopSampling).is_err() {
-                                defmt::error!("Failed to send StopSampling");
-                            }
-                        }
-                        Ok(ControlOpcode::SampleBattery) => {
-                            // Fake a battery voltage measurement
-                            if notify_data(DataOpcode::BatteryVoltage(3000), &conn).is_err() {
-                                defmt::error!("Battery voltage response failed to send");
-                            }
-                        }
-                        Ok(ControlOpcode::GetAppVersion) => {
-                            if notify_data(DataOpcode::AppVersion(DUMMY_VERSION_NUMBER), &conn)
-                                .is_err()
-                            {
-                                defmt::error!("Response to GetAppVersion failed");
-                            };
-                        }
-                        Ok(ControlOpcode::GetProgressorID) => {
-                            if notify_data(DataOpcode::ProgressorId(DUMMY_ID), &conn).is_err() {
-                                defmt::error!("Response to GetProgressorID failed");
-                            };
-                        }
-                        Ok(ControlOpcode::Shutdown) => {
-                            // TODO: make a note to go to sleep without advertising after
-                            // disconnect
-                        }
-                        _ => (),
-                    }
-                }
-                ProgressorServiceEvent::DataCccdWrite { notifications } => {
-                    defmt::info!("DataCccdWrite: {}", notifications);
-                }
-            },
-        })
-        .await;
-        // crate::leds::singleton_get().lock().await.green.set_high();
-        // Make sure we stop measuring on disconnect
-        measure_ch.send(weight::Command::StopSampling).await;
-
-        defmt::info!("Disconnected");
+        Err(AdvertiseError::NoFreeConn) => {
+            defmt::error!("No free connection");
+            system_off(measure_ch, wakeup_button).await
+        }
+        Err(AdvertiseError::Raw(err)) => {
+            defmt::error!("Advertising error: {}", err as u32);
+            system_off(measure_ch, wakeup_button).await
+        }
+    };
+    defmt::info!("Peer connected");
+    {
+        /*
+        let mut leds = crate::leds::singleton_get().lock().await;
+        leds.rgb_blue.set_high();
+        leds.green.set_low();
+        */
     }
+
+    gatt_server::run(&conn, server, |e| match e {
+        ServerEvent::Progressor(e) => match e {
+            ProgressorServiceEvent::ControlWrite(val) => {
+                let control_op = ControlOpcode::try_from(val);
+                match control_op {
+                    Ok(op) => defmt::info!("ProgressorService.ControlWrite: {}", op),
+                    Err(op) => defmt::warn!("ProgressorService.ControlWrite: 0x{:02X}", op),
+                }
+                match control_op {
+                    Ok(ControlOpcode::Tare) => {
+                        if measure_ch.try_send(weight::Command::Tare).is_err() {
+                            defmt::error!("Failed to send Tare");
+                        }
+                    }
+                    Ok(ControlOpcode::StartMeasurement) => {
+                        let notify_cb = Box::new({
+                            let conn = conn.clone();
+                            move |duration_since_start: Duration, measurement: f32| {
+                                if notify_data(
+                                    DataOpcode::Weight(
+                                        measurement,
+                                        u32::try_from(duration_since_start.as_micros()).unwrap(),
+                                    ),
+                                    &conn,
+                                )
+                                .is_err()
+                                {
+                                    defmt::error!("Notify failed");
+                                }
+                            }
+                        });
+                        if measure_ch
+                            .try_send(weight::Command::StartSampling(weight::SampleType::Tared(
+                                Some(notify_cb),
+                            )))
+                            .is_err()
+                        {
+                            defmt::error!("Failed to send StartSampling");
+                        }
+                    }
+                    Ok(ControlOpcode::StopMeasurement) => {
+                        if measure_ch.try_send(weight::Command::StopSampling).is_err() {
+                            defmt::error!("Failed to send StopSampling");
+                        }
+                    }
+                    Ok(ControlOpcode::SampleBattery) => {
+                        // Fake a battery voltage measurement
+                        if notify_data(DataOpcode::BatteryVoltage(3000), &conn).is_err() {
+                            defmt::error!("Battery voltage response failed to send");
+                        }
+                    }
+                    Ok(ControlOpcode::GetAppVersion) => {
+                        if notify_data(DataOpcode::AppVersion(DUMMY_VERSION_NUMBER), &conn).is_err()
+                        {
+                            defmt::error!("Response to GetAppVersion failed");
+                        };
+                    }
+                    Ok(ControlOpcode::GetProgressorID) => {
+                        if notify_data(DataOpcode::ProgressorId(DUMMY_ID), &conn).is_err() {
+                            defmt::error!("Response to GetProgressorID failed");
+                        };
+                    }
+                    Ok(ControlOpcode::Shutdown) => {
+                        // TODO: make a note to go to sleep without advertising after
+                        // disconnect
+                    }
+                    _ => (),
+                }
+            }
+            ProgressorServiceEvent::DataCccdWrite { notifications } => {
+                defmt::info!("DataCccdWrite: {}", notifications);
+            }
+        },
+    })
+    .await;
+    // crate::leds::singleton_get().lock().await.green.set_high();
+    // Make sure we stop measuring on disconnect
+    measure_ch.send(weight::Command::StopSampling).await;
+
+    defmt::info!("Disconnected");
+    system_off(measure_ch, wakeup_button).await
 }

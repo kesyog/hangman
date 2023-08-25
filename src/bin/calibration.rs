@@ -2,10 +2,12 @@
 #![cfg_attr(not(test), no_std)]
 #![feature(type_alias_impl_trait)]
 #![feature(async_fn_in_trait)]
+#![forbid(unsafe_op_in_unsafe_fn)]
 
 extern crate alloc;
 
 use alloc::boxed::Box;
+use blocking_hal::Delay as SysTickDelay;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::{
@@ -14,8 +16,10 @@ use embassy_nrf::{
 };
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, mutex::Mutex};
 use embedded_alloc::Heap;
-use hangman::weight::{self, average, hx711::Hx711};
-use nrf52840_hal::Delay as SysTickDelay;
+use hangman::{
+    blocking_hal, pac,
+    weight::{self, average, hx711::Hx711},
+};
 use nrf_softdevice::{self as _, Softdevice};
 use panic_probe as _;
 use static_cell::make_static;
@@ -94,7 +98,7 @@ async fn main(spawner: Spawner) -> ! {
         HEAP.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE);
     }
     let p = embassy_nrf::init(config());
-    let syst = embassy_nrf::pac::CorePeripherals::take().unwrap().SYST;
+    let syst = pac::CorePeripherals::take().unwrap().SYST;
     let delay: &'static SharedDelay = make_static!(Mutex::new(SysTickDelay::new(syst)));
 
     let sd = setup_softdevice();

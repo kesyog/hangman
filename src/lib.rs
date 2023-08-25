@@ -15,6 +15,7 @@
 #![cfg_attr(not(test), no_std)]
 #![feature(type_alias_impl_trait)]
 #![feature(async_fn_in_trait)]
+#![forbid(unsafe_op_in_unsafe_fn)]
 
 pub mod button;
 #[cfg(feature = "console")]
@@ -22,14 +23,18 @@ pub mod console;
 pub mod gatt;
 pub mod leds;
 pub mod nonvolatile;
+pub mod sleep;
+pub mod util;
 pub mod weight;
 
+use blocking_hal::Delay as SysTickDelay;
+pub use embassy_nrf::pac;
 use embassy_sync::{
     blocking_mutex::raw::NoopRawMutex,
     channel::{Channel, Receiver},
     mutex::Mutex,
 };
-use nrf52840_hal::Delay as SysTickDelay;
+pub use nrf52840_hal as blocking_hal;
 use nrf_softdevice as _;
 use panic_probe as _;
 

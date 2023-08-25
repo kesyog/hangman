@@ -33,7 +33,6 @@ where
     window_size: usize,
     accumulator: T::Sum,
     n_samples: usize,
-    // TODO: delete min/max in window
     max: Option<T::Sum>,
     min: Option<T::Sum>,
 }

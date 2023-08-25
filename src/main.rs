@@ -16,9 +16,11 @@
 #![cfg_attr(not(test), no_std)]
 #![feature(type_alias_impl_trait)]
 #![feature(async_fn_in_trait)]
+#![forbid(unsafe_op_in_unsafe_fn)]
 
 extern crate alloc;
 
+use blocking_hal::Delay as SysTickDelay;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::{
@@ -30,12 +32,12 @@ use embassy_sync::{channel::Channel, mutex::Mutex};
 use embassy_time::{Duration, Timer};
 use embedded_alloc::Heap;
 use hangman::{
+    blocking_hal,
     button::{self, Button},
-    gatt, leds,
+    gatt, pac, util,
     weight::{self, hx711::Hx711},
     MeasureCommandChannel, SharedDelay,
 };
-use nrf52840_hal::Delay as SysTickDelay;
 use nrf_softdevice::{self as _, SocEvent, Softdevice};
 use panic_probe as _;
 use static_cell::make_static;
@@ -76,12 +78,17 @@ async fn main(spawner: Spawner) -> ! {
     defmt::println!("Start {}!", core::env!("CARGO_BIN_NAME"));
     unsafe {
         HEAP.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE);
+        let reset_reason: u32 = (*pac::POWER::ptr()).resetreas.read().bits();
+        defmt::info!("Reset reason: {:X}", reset_reason);
+        // Reset certain GPIO settings that are retained through system OFF and interfere with the
+        // HAL
+        util::disable_all_gpio_sense();
     }
+
     let p = embassy_nrf::init(config());
-    let reset_reason: u32 = unsafe { (*embassy_nrf::pac::POWER::ptr()).resetreas.read().bits() };
-    defmt::info!("Reset reason: {:X}", reset_reason);
-    let syst = embassy_nrf::pac::CorePeripherals::take().unwrap().SYST;
+    let syst = pac::CorePeripherals::take().unwrap().SYST;
     let delay: &'static SharedDelay = make_static!(Mutex::new(SysTickDelay::new(syst)));
+    /*
     let green_led = gpio::Output::new(
         p.P0_06.degrade(),
         gpio::Level::High,
@@ -98,6 +105,7 @@ async fn main(spawner: Spawner) -> ! {
         gpio::OutputDrive::Standard,
     );
     leds::singleton_init(rgb_blue_led, rgb_red_led, green_led).unwrap();
+    */
 
     // orange DATA 0.17
     let hx711_data = gpio::Input::new(p.P0_17.degrade(), gpio::Pull::None);

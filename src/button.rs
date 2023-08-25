@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use embassy_nrf::gpio::{AnyPin, Input, Pull};
+use crate::pac::{
+    self,
+    p0::{RegisterBlock, PIN_CNF},
+};
+use embassy_nrf::gpio::{AnyPin, Input, Pin, Port, Pull};
 
 pub enum Polarity {
     ActiveLow,
@@ -22,11 +26,14 @@ pub enum Polarity {
 pub struct Button {
     input: Input<'static, AnyPin>,
     polarity: Polarity,
+    port: Port,
+    pin_number: u8,
 }
 
 impl Button {
     pub fn new(pin: AnyPin, polarity: Polarity, pull: bool) -> Self {
-        // let mut button = gpio::Input::new(p.P1_06, gpio::Pull::Up);
+        let port = pin.port();
+        let pin_number = pin.pin();
         let input = match polarity {
             Polarity::ActiveLow => {
                 let pull = if pull { Pull::Up } else { Pull::None };
@@ -37,13 +44,38 @@ impl Button {
                 Input::new(pin, pull)
             }
         };
-        Self { input, polarity }
+        Self {
+            input,
+            polarity,
+            port,
+            pin_number,
+        }
     }
 
     pub async fn wait_for_press(&mut self) {
         match self.polarity {
             Polarity::ActiveLow => self.input.wait_for_falling_edge().await,
             Polarity::ActiveHigh => self.input.wait_for_rising_edge().await,
+        }
+    }
+
+    unsafe fn steal_port(&mut self) -> &'static RegisterBlock {
+        match self.port {
+            Port::Port0 => unsafe { &(*pac::P0::ptr()) },
+            Port::Port1 => unsafe { &(*pac::P1::ptr()) },
+        }
+    }
+
+    unsafe fn steal_pin_cnf(&mut self) -> &'static PIN_CNF {
+        let port = unsafe { self.steal_port() };
+        &port.pin_cnf[usize::from(self.pin_number)]
+    }
+
+    pub unsafe fn enable_sense(&mut self) {
+        let cfg = unsafe { self.steal_pin_cnf() };
+        match self.polarity {
+            Polarity::ActiveLow => cfg.modify(|_, w| w.sense().low()),
+            Polarity::ActiveHigh => cfg.modify(|_, w| w.sense().high()),
         }
     }
 }
