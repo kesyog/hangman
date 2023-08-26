@@ -84,6 +84,9 @@ async fn main(spawner: Spawner) -> ! {
         // HAL
         util::disable_all_gpio_sense();
     }
+    weight::init(weight::Config {
+        sampling_interval_hz: 80,
+    });
 
     let p = embassy_nrf::init(config());
     let syst = pac::CorePeripherals::take().unwrap().SYST;

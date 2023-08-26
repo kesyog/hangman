@@ -17,7 +17,7 @@ use embassy_nrf::{
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, mutex::Mutex};
 use embedded_alloc::Heap;
 use hangman::{
-    blocking_hal, pac,
+    blocking_hal, gatt, pac,
     weight::{self, average, hx711::Hx711},
 };
 use nrf_softdevice::{self as _, Softdevice};
@@ -46,41 +46,6 @@ async fn softdevice_task(sd: &'static Softdevice) -> ! {
     sd.run().await
 }
 
-fn setup_softdevice() -> &'static mut Softdevice {
-    use nrf_softdevice::raw;
-    let config = nrf_softdevice::Config {
-        clock: Some(raw::nrf_clock_lf_cfg_t {
-            source: raw::NRF_CLOCK_LF_SRC_XTAL as u8,
-            rc_ctiv: 0,
-            rc_temp_ctiv: 0,
-            accuracy: raw::NRF_CLOCK_LF_ACCURACY_500_PPM as u8,
-        }),
-        conn_gap: Some(raw::ble_gap_conn_cfg_t {
-            conn_count: 2,
-            event_length: 24,
-        }),
-        conn_gatt: Some(raw::ble_gatt_conn_cfg_t { att_mtu: 256 }),
-        gatts_attr_tab_size: Some(raw::ble_gatts_cfg_attr_tab_size_t {
-            attr_tab_size: 2048,
-        }),
-        gap_role_count: Some(raw::ble_gap_cfg_role_count_t {
-            adv_set_count: 1,
-            periph_role_count: 2,
-        }),
-        gap_device_name: Some(raw::ble_gap_cfg_device_name_t {
-            p_value: (b"Hangman" as *const u8).cast_mut(),
-            current_len: 15,
-            max_len: 15,
-            write_perm: unsafe { core::mem::zeroed() },
-            _bitfield_1: raw::ble_gap_cfg_device_name_t::new_bitfield_1(
-                raw::BLE_GATTS_VLOC_STACK as u8,
-            ),
-        }),
-        ..Default::default()
-    };
-    Softdevice::enable(&config)
-}
-
 fn config() -> Config {
     // Interrupt priority levels 0, 1, and 4 are reserved for the SoftDevice
     let mut config = Config::default();
@@ -96,12 +61,18 @@ async fn main(spawner: Spawner) -> ! {
     defmt::println!("Start {}!", core::env!("CARGO_BIN_NAME"));
     unsafe {
         HEAP.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE);
+        let reset_reason: u32 = (*pac::POWER::ptr()).resetreas.read().bits();
+        defmt::info!("Reset reason: {:X}", reset_reason);
     }
+    weight::init(weight::Config {
+        sampling_interval_hz: 80,
+    });
+
     let p = embassy_nrf::init(config());
     let syst = pac::CorePeripherals::take().unwrap().SYST;
     let delay: &'static SharedDelay = make_static!(Mutex::new(SysTickDelay::new(syst)));
 
-    let sd = setup_softdevice();
+    let sd = Softdevice::enable(&gatt::softdevice_config());
     spawner.must_spawn(softdevice_task(sd));
 
     // It's recommended to start the SoftDevice before doing anything else

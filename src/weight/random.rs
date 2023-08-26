@@ -14,7 +14,7 @@
 
 #![allow(unused)]
 
-use super::{Sample, SampleProducerMut, SAMPLING_INTERVAL};
+use super::{Sample, SampleProducerMut};
 use core::num::NonZeroU32;
 use embassy_time::{Duration, Instant, Timer};
 use nrf_softdevice::Softdevice;
@@ -61,7 +61,7 @@ impl SampleProducerMut for FakeSampler {
         //let mut rng = SoftDeviceRng(sd);
 
         static TIME: Lazy<usize> = Lazy::new(|| 0);
-        Timer::after(SAMPLING_INTERVAL).await;
+        Timer::after(Duration::from_hz(super::sampling_interval_hz() as u64)).await;
         let timestamp = Instant::now();
         let value = self.0.gen_range(10.0..20.0);
         Sample { timestamp, value }

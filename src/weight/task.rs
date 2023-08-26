@@ -68,13 +68,15 @@ async fn handle_command(cmd: Command, context: &mut MeasurementContext, adc: &Sh
             context.state = MeasurementState::Idle;
         }
         Command::Tare => {
-            const WARMUP: usize = 80;
-            const FILTER_SIZE: usize = 80;
-            for _ in 0..WARMUP {
+            // 1 second
+            let warmup = super::sampling_interval_hz();
+            // 1 second
+            let filter_size = super::sampling_interval_hz();
+            for _ in 0..warmup {
                 let _ = context.calibrator.sample().await;
             }
-            let mut filter = average::Window::<f32>::new(FILTER_SIZE);
-            for _ in 0..(FILTER_SIZE - 1) {
+            let mut filter = average::Window::<f32>::new(filter_size);
+            for _ in 0..(filter_size - 1) {
                 let Sample { value, .. } = context.calibrator.sample().await;
                 assert!(filter.add_sample(value).is_none());
             }

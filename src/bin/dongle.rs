@@ -91,6 +91,9 @@ async fn main(spawner: Spawner) -> ! {
         // HAL
         util::disable_all_gpio_sense();
     }
+    weight::init(weight::Config {
+        sampling_interval_hz: 10,
+    });
 
     // This will reset the GPIO latch signal
     let p = embassy_nrf::init(config());

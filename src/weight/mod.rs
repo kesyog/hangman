@@ -28,9 +28,10 @@ use core::ops::DerefMut;
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant};
+use once_cell::sync::OnceCell;
 pub use task::task_function;
 
-const SAMPLING_INTERVAL: Duration = Duration::from_hz(80);
+static SAMPLING_INTERVAL_HZ: OnceCell<usize> = OnceCell::new();
 // Temporary defaults for test load cell
 pub const DEFAULT_CALIBRATION_M: f32 = 4.6750380809321235e-06;
 pub const DEFAULT_CALIBRATION_B: i32 = -100598;
@@ -70,6 +71,22 @@ impl defmt::Format for Command {
             Command::Tare => defmt::write!(fmt, "Tare"),
         }
     }
+}
+
+pub struct Config {
+    pub sampling_interval_hz: usize,
+}
+
+pub fn init(config: Config) {
+    SAMPLING_INTERVAL_HZ
+        .set(config.sampling_interval_hz)
+        .expect("weight::init to be called only once");
+}
+
+pub fn sampling_interval_hz() -> usize {
+    *SAMPLING_INTERVAL_HZ
+        .get()
+        .expect("weight::init to have been called")
 }
 
 async fn write_calibration(nvm: &mut Nvm, cal_m: f32, cal_b: i32) {
