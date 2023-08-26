@@ -139,6 +139,14 @@ async fn main(spawner: Spawner) -> ! {
     // It's recommended to start the SoftDevice before doing anything else
     embassy_futures::yield_now().await;
 
+    // Enable DC-DC converter for power savings. This is okay since the softdevice has been enabled
+    // and the dongle has the necessary inductors
+    unsafe {
+        nrf_softdevice::raw::sd_power_dcdc_mode_set(
+            nrf_softdevice::raw::NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE as u8,
+        )
+    };
+
     #[cfg(feature = "console")]
     let (usb, class) = console::board::setup_usb(p.USBD, Irqs, usb_detect_ref);
 
