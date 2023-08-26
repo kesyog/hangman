@@ -24,7 +24,7 @@ use embassy_sync::channel::Sender;
 use embassy_time::{Duration, Timer};
 use nrf_softdevice::ble::gatt_server::NotifyValueError;
 use nrf_softdevice::ble::peripheral::AdvertiseError;
-use nrf_softdevice::ble::{gatt_server, Connection, GattValue};
+use nrf_softdevice::ble::{gatt_server, Connection, GattValue, Phy, TxPower};
 use nrf_softdevice::{ble, raw as raw_sd, Softdevice};
 
 type MeasureChannel = Sender<'static, NoopRawMutex, weight::Command, MEASURE_COMMAND_CHANNEL_SIZE>;
@@ -260,16 +260,22 @@ pub fn softdevice_config() -> nrf_softdevice::Config {
             accuracy: raw::NRF_CLOCK_LF_ACCURACY_500_PPM as u8,
         }),
         conn_gap: Some(raw::ble_gap_conn_cfg_t {
-            conn_count: 2,
-            event_length: 24,
+            conn_count: 1,
+            event_length: raw::BLE_GAP_EVENT_LENGTH_DEFAULT as u16,
         }),
-        conn_gatt: Some(raw::ble_gatt_conn_cfg_t { att_mtu: 256 }),
+        conn_gatt: Some(raw::ble_gatt_conn_cfg_t {
+            // Set to something small-ish since individual GATT transactions are small (guessing
+            // ~10 bytes). Might want to bump this up if we add DFU support. Don't really know what
+            // I'm doing here.
+            att_mtu: 48,
+        }),
         gatts_attr_tab_size: Some(raw::ble_gatts_cfg_attr_tab_size_t {
-            attr_tab_size: 2048,
+            // Using default value of BLE_GATTS_ATTR_TAB_SIZE_DEFAULT
+            attr_tab_size: 1408,
         }),
         gap_role_count: Some(raw::ble_gap_cfg_role_count_t {
             adv_set_count: 1,
-            periph_role_count: 2,
+            periph_role_count: 1,
         }),
         gap_device_name: Some(raw::ble_gap_cfg_device_name_t {
             p_value: ADVERTISED_NAME.as_ptr().cast_mut(),
@@ -313,6 +319,11 @@ async fn advertise(sd: &Softdevice) -> Result<Connection, AdvertiseError> {
     let config = ble::peripheral::Config {
         // Timeout is passed as # of 10 ms periods
         timeout: Some(ADVERTISING_TIMEOUT_SEC * (1000 / 10)),
+        // Primary PHY must be 1M
+        primary_phy: Phy::M1,
+        secondary_phy: Phy::M2,
+        // TODO: how low can we reduce transmit power and get reasonable performance
+        tx_power: TxPower::ZerodBm,
         ..Default::default()
     };
     let adv = ble::peripheral::ConnectableAdvertisement::ScannableUndirected {

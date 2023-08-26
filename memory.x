@@ -10,7 +10,7 @@ MEMORY
   /* MBR + SoftDevice require some amount of RAM. It'll tell us at boot (via logs) what the right
   value is */
   /* Artificially constraining RAM to that of the smallest nRF52 chip */
-  RAM : ORIGIN = 0x20000000 + 15224, LENGTH = 24K - 15224
+  RAM : ORIGIN = 0x20000000 + 7952, LENGTH = 24K - 7952
 }
 
 /* This is where the call stack will be allocated. */
