@@ -1,0 +1,3 @@
+[submodule "boards/fanstel-library"]
+	path = boards/fanstel-library
+	url = https://github.com/hemalchevli/Fanstel-kicad-library.git

@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "Fanstel_modules")(type "KiCad")(uri "/home/hikes/dev/personal/hangman/boards/fanstel-library/Fanstel_modules.pretty")(options "")(descr ""))
+)
