@@ -34,9 +34,19 @@ use embassy_sync::{
     channel::{Channel, Receiver},
     mutex::Mutex,
 };
+
+#[cfg(feature = "nrf52832")]
+pub use nrf52832_hal as blocking_hal;
+#[cfg(feature = "nrf52840")]
 pub use nrf52840_hal as blocking_hal;
 use nrf_softdevice as _;
 use panic_probe as _;
+
+#[cfg(all(feature = "nrf52832", feature = "nrf52840"))]
+compile_error!("features `nrf52832` and `nrf52840` are mutually exclusive");
+
+#[cfg(all(not(feature = "nrf52832"), not(feature = "nrf52840")))]
+compile_error!("one of `nrf52832` and `nrf52840` must be enabled");
 
 pub type SharedDelay = Mutex<NoopRawMutex, SysTickDelay>;
 pub type MeasureCommandChannel =

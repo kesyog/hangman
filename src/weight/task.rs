@@ -13,8 +13,11 @@
 // limitations under the License.
 
 use super::calibrate::Calibrator;
-use super::hx711::Hx711;
 use super::tare::Tarer;
+#[cfg(feature = "nrf52832")]
+use super::Ads1230;
+#[cfg(feature = "nrf52840")]
+use super::Hx711;
 use super::{average, median::Median, Command, Sample, SampleProducerMut, SampleType};
 use crate::nonvolatile::Nvm;
 use crate::MeasureCommandReceiver;
@@ -27,7 +30,12 @@ use static_cell::make_static;
 
 const THREAD_SLEEP_DELAY: Duration = Duration::from_millis(100);
 
-type SharedAdc = Mutex<NoopRawMutex, Hx711<'static>>;
+#[cfg(feature = "nrf52832")]
+type Adc = Ads1230<'static>;
+#[cfg(feature = "nrf52840")]
+type Adc = Hx711<'static>;
+
+type SharedAdc = Mutex<NoopRawMutex, Adc>;
 type SharedFilteredAdc = Mutex<NoopRawMutex, Median<&'static SharedAdc>>;
 type SharedCalibrator = Mutex<NoopRawMutex, Calibrator<&'static SharedFilteredAdc>>;
 
@@ -135,11 +143,7 @@ async fn measure(context: &mut MeasurementContext) {
 }
 
 #[embassy_executor::task]
-pub async fn task_function(
-    rx: MeasureCommandReceiver,
-    adc: Hx711<'static>,
-    sd: &'static Softdevice,
-) {
+pub async fn task_function(rx: MeasureCommandReceiver, adc: Adc, sd: &'static Softdevice) {
     defmt::debug!("Starting measurement task");
     let adc: &SharedAdc = make_static!(Mutex::new(adc));
     let median: &'static SharedFilteredAdc = make_static!(Mutex::new(Median::new(adc)));

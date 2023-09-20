@@ -18,6 +18,9 @@
 #![feature(async_fn_in_trait)]
 #![forbid(unsafe_op_in_unsafe_fn)]
 
+#[cfg(not(feature = "nrf52840"))]
+compile_error!("Dongle proto uses nRF52840");
+
 extern crate alloc;
 
 use blocking_hal::Delay as SysTickDelay;
@@ -37,7 +40,7 @@ use hangman::{
     blocking_hal,
     button::{self, Button},
     gatt, leds, pac, util,
-    weight::{self, hx711::Hx711},
+    weight::{self, Hx711},
     MeasureCommandChannel, SharedDelay,
 };
 use nrf_softdevice::{self as _, SocEvent, Softdevice};

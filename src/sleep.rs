@@ -49,6 +49,7 @@ pub async unsafe fn system_off(mut wakeup_button: Button) -> ! {
         util::disable_all_gpio_sense();
         wakeup_button.enable_sense();
         (*pac::P0::ptr()).latch.write(|w| w.bits(0xFFFFFFFF));
+        #[cfg(feature = "nrf52840")]
         (*pac::P1::ptr()).latch.write(|w| w.bits(0xFFFFFFFF));
     }
 

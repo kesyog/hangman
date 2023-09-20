@@ -4,6 +4,9 @@
 #![feature(async_fn_in_trait)]
 #![forbid(unsafe_op_in_unsafe_fn)]
 
+#[cfg(not(feature = "nrf52840"))]
+compile_error!("Proto 0.0 uses nRF52840");
+
 extern crate alloc;
 
 use alloc::boxed::Box;
@@ -18,7 +21,7 @@ use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, mutex::M
 use embedded_alloc::Heap;
 use hangman::{
     blocking_hal, gatt, pac,
-    weight::{self, average, hx711::Hx711},
+    weight::{self, average, Hx711},
 };
 use nrf_softdevice::{self as _, Softdevice};
 use panic_probe as _;

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod ads1230;
 pub mod average;
 mod calibrate;
 pub mod hx711;
@@ -23,11 +24,13 @@ mod task;
 extern crate alloc;
 
 use crate::nonvolatile::Nvm;
+pub use ads1230::Ads1230;
 use alloc::boxed::Box;
 use core::ops::DerefMut;
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant};
+pub use hx711::Hx711;
 use once_cell::sync::OnceCell;
 pub use task::task_function;
 

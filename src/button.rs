@@ -62,6 +62,7 @@ impl Button {
     unsafe fn steal_port(&mut self) -> &'static RegisterBlock {
         match self.port {
             Port::Port0 => unsafe { &(*pac::P0::ptr()) },
+            #[cfg(feature = "nrf52840")]
             Port::Port1 => unsafe { &(*pac::P1::ptr()) },
         }
     }

@@ -18,18 +18,18 @@
 #![feature(async_fn_in_trait)]
 #![forbid(unsafe_op_in_unsafe_fn)]
 
-#[cfg(not(feature = "nrf52840"))]
-compile_error!("Proto 0.0 uses nRF52840");
+#[cfg(not(feature = "nrf52832"))]
+compile_error!("Proto 1.0 uses nRF52832");
 
 extern crate alloc;
 
+use alloc::boxed::Box;
 use blocking_hal::Delay as SysTickDelay;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::{
     config::{Config, HfclkSource, LfclkSource},
     gpio::{self, Pin},
-    usb::vbus_detect::SoftwareVbusDetect,
 };
 use embassy_sync::{channel::Channel, mutex::Mutex};
 use embassy_time::{Duration, Timer};
@@ -37,11 +37,11 @@ use embedded_alloc::Heap;
 use hangman::{
     blocking_hal,
     button::{self, Button},
-    gatt, pac, util,
-    weight::{self, Hx711},
+    gatt, pac, sleep, util,
+    weight::{self, Ads1230},
     MeasureCommandChannel, SharedDelay,
 };
-use nrf_softdevice::{self as _, SocEvent, Softdevice};
+use nrf_softdevice::{self as _, Softdevice};
 use panic_probe as _;
 use static_cell::make_static;
 
@@ -52,18 +52,9 @@ static HEAP: Heap = Heap::empty();
 const HEAP_SIZE: usize = 1024;
 
 #[embassy_executor::task]
-async fn softdevice_task(sd: &'static Softdevice, usb_detect: &'static SoftwareVbusDetect) -> ! {
+async fn softdevice_task(sd: &'static Softdevice) -> ! {
     defmt::debug!("Starting softdevice task");
-    sd.run_with_callback(|event| {
-        defmt::debug!("SD event: {}", event);
-        match event {
-            SocEvent::PowerUsbPowerReady => usb_detect.ready(),
-            SocEvent::PowerUsbDetected => usb_detect.detected(true),
-            SocEvent::PowerUsbRemoved => usb_detect.detected(false),
-            _ => (),
-        };
-    })
-    .await
+    sd.run().await
 }
 
 fn config() -> Config {
@@ -75,6 +66,15 @@ fn config() -> Config {
     config.time_interrupt_priority = embassy_nrf::interrupt::Priority::P5;
     config
 }
+
+// Pins
+// ADC_DATA: P0.20
+// ADC_CLOCK: P0.18
+// /VDDA_ON: P0.13
+// /PWDN: P0.03
+// SW1: P0.09 (power switch)
+// SW2: P0.10
+// /LED: P0.26
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
@@ -94,69 +94,64 @@ async fn main(spawner: Spawner) -> ! {
     let p = embassy_nrf::init(config());
     let syst = pac::CorePeripherals::take().unwrap().SYST;
     let delay: &'static SharedDelay = make_static!(Mutex::new(SysTickDelay::new(syst)));
-    /*
-    let green_led = gpio::Output::new(
-        p.P0_06.degrade(),
-        gpio::Level::High,
-        gpio::OutputDrive::Standard,
-    );
-    let rgb_red_led = gpio::Output::new(
-        p.P0_08.degrade(),
-        gpio::Level::High,
-        gpio::OutputDrive::Standard,
-    );
-    let rgb_blue_led = gpio::Output::new(
-        p.P0_12.degrade(),
-        gpio::Level::High,
-        gpio::OutputDrive::Standard,
-    );
-    leds::singleton_init(rgb_blue_led, rgb_red_led, green_led).unwrap();
-    */
-
-    // orange DATA 0.17
-    let hx711_data = gpio::Input::new(p.P0_17.degrade(), gpio::Pull::None);
-    // yellow CLK 0.20
-    let hx711_clock = gpio::Output::new(
-        p.P0_20.degrade(),
-        // Set high initially to power down chip
-        gpio::Level::High,
-        gpio::OutputDrive::Standard,
-    );
-    let hx711 = Hx711::new(hx711_data, hx711_clock, delay);
-
-    // USB setup
-    // Hack: pretend USB is already connected. not a bad assumption since this is a dongle
-    // There might be a race condition at startup between USB init and SD init.
-    let usb_detect_ref: &SoftwareVbusDetect = make_static!(SoftwareVbusDetect::new(true, true));
 
     let sd = Softdevice::enable(&gatt::softdevice_config());
     gatt::server::init(sd).unwrap();
-    spawner.must_spawn(softdevice_task(sd, usb_detect_ref));
+    spawner.must_spawn(softdevice_task(sd));
 
     // It's recommended to start the SoftDevice before doing anything else
     embassy_futures::yield_now().await;
 
     // Enable DC-DC converter for power savings. This is okay since the softdevice has been enabled
-    // and the dongle has the necessary inductors
+    // and the BC832 module has the necessary inductors
     unsafe {
         nrf_softdevice::raw::sd_power_dcdc_mode_set(
             nrf_softdevice::raw::NRF_POWER_DCDC_MODES_NRF_POWER_DCDC_ENABLE as u8,
         )
     };
 
+    // Enable analog supply and ADC
+    let mut vdda_on = gpio::Output::new(
+        p.P0_13.degrade(),
+        gpio::Level::Low,
+        gpio::OutputDrive::Standard,
+    );
+    let adc_data = gpio::Input::new(p.P0_20.degrade(), gpio::Pull::None);
+    let adc_clock = gpio::Output::new(
+        p.P0_18.degrade(),
+        // Set high initially to power down chip
+        gpio::Level::High,
+        gpio::OutputDrive::Standard,
+    );
+    // Not supposed to power up the ADS1230 until at least 10us after the poewr supplies have come
+    // up. Insert a delay to be safe.
+    Timer::after(Duration::from_micros(10)).await;
+    let mut pwdn = gpio::Output::new(
+        p.P0_03.degrade(),
+        gpio::Level::High,
+        gpio::OutputDrive::Standard,
+    );
+    let mut adc = Ads1230::new(adc_data, adc_clock, delay);
+    adc.schedule_offset_calibration().await;
+    sleep::register_system_off_callback(Box::new(move || {
+        // Power down ADC
+        pwdn.set_low();
+        // Power down analog supply to load cell
+        vdda_on.set_high();
+    }));
+
     let ch: &MeasureCommandChannel = make_static!(Channel::new());
 
     // Start tasks
     // Use SW1 = power button for wakeup
-    let wakeup_button = Button::new(p.P0_29.degrade(), button::Polarity::ActiveLow, true);
+    let wakeup_button = Button::new(p.P0_09.degrade(), button::Polarity::ActiveLow, true);
     spawner.must_spawn(gatt::ble_task(sd, ch.sender(), wakeup_button));
-    spawner.must_spawn(weight::task_function(ch.receiver(), hx711, sd));
+    spawner.must_spawn(weight::task_function(ch.receiver(), adc, sd));
 
     Timer::after(Duration::from_millis(1000)).await;
+    // This will run the offset calibration that we scheduled above
     ch.sender().send(weight::Command::Tare).await;
 
-    // TODO: add back manual calibration (or better yet implement calibration over BLE)
-    // let calibration_button = Button::new(p.P1_06.degrade(), button::Polarity::ActiveLow, true);
     loop {
         core::future::pending::<()>().await;
     }

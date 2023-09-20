@@ -35,9 +35,15 @@ use embedded_storage_async::nor_flash::NorFlash;
 use nrf_softdevice::{Flash, Softdevice};
 
 /// Address of start of Flash page
+#[cfg(feature = "nrf52840")]
 const MIN_ADDR: u32 = 0xDF000;
+#[cfg(feature = "nrf52832")]
+const MIN_ADDR: u32 = 0x3F000;
 /// Address of start of next Flash page
+#[cfg(feature = "nrf52840")]
 const MAX_ADDR: u32 = 0xE0000;
+#[cfg(feature = "nrf52832")]
+const MAX_ADDR: u32 = 0x40000;
 const CHECKSUM_ADDR: u32 = MAX_ADDR - 4;
 
 /// Data stored in Flash

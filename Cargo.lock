@@ -697,6 +697,7 @@ dependencies = [
  "fix-hidden-lifetime-bug",
  "median",
  "nrf-softdevice",
+ "nrf52832-hal",
  "nrf52840-hal",
  "num",
  "once_cell",
@@ -801,6 +802,7 @@ dependencies = [
  "fixed",
  "nb 1.1.0",
  "nrf-usbd",
+ "nrf52832-pac",
  "nrf52840-pac",
  "rand_core",
  "void",
@@ -824,6 +826,7 @@ dependencies = [
  "heapless",
  "nrf-softdevice-macro",
  "nrf-softdevice-s113",
+ "nrf52832-pac",
  "nrf52840-pac",
  "num_enum",
 ]
@@ -900,6 +903,17 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "vcell",
+]
+
+[[package]]
+name = "nrf52832-hal"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e2e1d21d08826c02a2292d75f46a20e134c879dd2fcf09aa9bbca3d0d40db98"
+dependencies = [
+ "embedded-hal 0.2.7",
+ "nrf-hal-common",
+ "nrf52832-pac",
 ]
 
 [[package]]
