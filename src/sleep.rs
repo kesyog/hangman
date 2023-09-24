@@ -12,7 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+extern crate alloc;
+use core::ops::DerefMut;
+
 use crate::{button::Button, pac, util};
+use alloc::boxed::Box;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
+use once_cell::sync::OnceCell;
+
+static SYSTEM_OFF_CB: OnceCell<
+    Mutex<CriticalSectionRawMutex, Option<Box<dyn FnOnce() -> () + Send + Sync>>>,
+> = OnceCell::new();
+
+pub fn register_system_off_callback(callback: Box<dyn FnOnce() -> () + Send + Sync>) {
+    if let Err(_) = SYSTEM_OFF_CB.set(Mutex::new(Some(callback))) {
+        defmt::error!("SYSTEM OFF callback already registered");
+    }
+}
 
 /// Set system into system OFF mode with the given button as the wakeup trigger.
 ///
@@ -34,6 +50,16 @@ pub async unsafe fn system_off(mut wakeup_button: Button) -> ! {
         wakeup_button.enable_sense();
         (*pac::P0::ptr()).latch.write(|w| w.bits(0xFFFFFFFF));
         (*pac::P1::ptr()).latch.write(|w| w.bits(0xFFFFFFFF));
+    }
+
+    if let Some(callback) = SYSTEM_OFF_CB.get() {
+        if let Some(callback) = callback.lock().await.deref_mut().take() {
+            defmt::debug!("Calling registered system OFF callback");
+            callback();
+        } else {
+            // It's a programmer error for SYSTEM_OFF_CB to be Some but the callback to be None
+            defmt::error!("Registered system OFF callback empty");
+        }
     }
 
     defmt::info!("Going to system OFF");
