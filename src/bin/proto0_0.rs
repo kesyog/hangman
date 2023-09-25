@@ -155,8 +155,6 @@ async fn main(spawner: Spawner) -> ! {
     Timer::after(Duration::from_millis(1000)).await;
     ch.sender().send(weight::Command::Tare).await;
 
-    // TODO: add back manual calibration (or better yet implement calibration over BLE)
-    // let calibration_button = Button::new(p.P1_06.degrade(), button::Polarity::ActiveLow, true);
     loop {
         core::future::pending::<()>().await;
     }

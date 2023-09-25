@@ -21,11 +21,7 @@
 //! Ideally, we'd use the nrf52's UICR registers, which are made for this purpose, but it's
 //! impossible to write to them with the Softdevice enabled. Instead, we just reserve one 4kB page
 //! of Flash.
-//!
-//! TODO: consider alternate flow
-//! 1. Write new values to uninit RAM
-//! 2. Reboot
-//! 3. Write to UICR before initializing Softdevice
+
 use aligned::{Aligned, A32};
 use as_slice::AsMutSlice;
 use bytemuck_derive::{Pod, Zeroable};

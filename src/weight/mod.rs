@@ -15,6 +15,7 @@
 pub mod ads1230;
 pub mod average;
 mod calibrate;
+mod factory_calibration;
 pub mod hx711;
 pub mod median;
 mod random;
@@ -39,6 +40,8 @@ static SAMPLING_INTERVAL_HZ: OnceCell<usize> = OnceCell::new();
 pub const DEFAULT_CALIBRATION_M: f32 = 4.6750380809321235e-06;
 pub const DEFAULT_CALIBRATION_B: i32 = -100598;
 
+// TODO: use this everywhere
+type Reading = i32;
 pub type OnRawMeasurementCb = dyn FnMut(Duration, i32);
 pub type OnCalibratedMeasurementCb = dyn FnMut(Duration, f32);
 pub type OnTaredMeasurementCb = dyn FnMut(Duration, f32);
@@ -55,6 +58,8 @@ pub enum Command {
     StartSampling(SampleType),
     StopSampling,
     Tare,
+    AddCalibrationPoint(f32),
+    SaveCalibration,
 }
 
 impl defmt::Format for Command {
@@ -72,6 +77,10 @@ impl defmt::Format for Command {
             }
             Command::StopSampling => defmt::write!(fmt, "StopSampling"),
             Command::Tare => defmt::write!(fmt, "Tare"),
+            Command::AddCalibrationPoint(known_weight) => {
+                defmt::write!(fmt, "AddCalibrationPoint: {}", known_weight)
+            }
+            Command::SaveCalibration => defmt::write!(fmt, "SaveCalibration"),
         }
     }
 }

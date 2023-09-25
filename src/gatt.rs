@@ -162,33 +162,55 @@ impl GattValue for DataPoint {
 
 #[derive(Copy, Clone, Format)]
 pub enum ControlOpcode {
-    Tare = 0x64,
-    StartMeasurement = 0x65,
-    StopMeasurement = 0x66,
-    StartPeakRfdMeasurement = 0x67,
-    StartPeakRfdMeasurementSeries = 0x68,
-    AddCalibrationPoint = 0x69,
-    SaveCalibration = 0x6A,
-    GetAppVersion = 0x6B,
-    GetErrorInfo = 0x6C,
-    ClearErrorInfo = 0x6D,
-    Shutdown = 0x6E,
-    SampleBattery = 0x6F,
-    GetProgressorID = 0x70,
+    Tare,
+    StartMeasurement,
+    StopMeasurement,
+    StartPeakRfdMeasurement,
+    StartPeakRfdMeasurementSeries,
+    AddCalibrationPoint(f32),
+    SaveCalibration,
+    GetAppVersion,
+    GetErrorInfo,
+    ClearErrorInfo,
+    Shutdown,
+    SampleBattery,
+    GetProgressorID,
 }
 
-#[derive(Copy, Clone, Pod, Zeroable)]
+impl ControlOpcode {
+    pub const fn opcode(self) -> u8 {
+        match self {
+            ControlOpcode::Tare => 0x64,
+            ControlOpcode::StartMeasurement => 0x65,
+            ControlOpcode::StopMeasurement => 0x66,
+            ControlOpcode::StartPeakRfdMeasurement => 0x67,
+            ControlOpcode::StartPeakRfdMeasurementSeries => 0x68,
+            ControlOpcode::AddCalibrationPoint(_) => 0x69,
+            ControlOpcode::SaveCalibration => 0x6A,
+            ControlOpcode::GetAppVersion => 0x6B,
+            ControlOpcode::GetErrorInfo => 0x6C,
+            ControlOpcode::ClearErrorInfo => 0x6D,
+            ControlOpcode::Shutdown => 0x6E,
+            ControlOpcode::SampleBattery => 0x6F,
+            ControlOpcode::GetProgressorID => 0x70,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Default, Pod, Zeroable)]
 #[repr(C, packed)]
 pub struct ControlPoint {
     opcode: u8,
     length: u8,
+    value: [u8; 4],
 }
 
 impl From<ControlOpcode> for ControlPoint {
     fn from(opcode: ControlOpcode) -> Self {
         Self {
-            opcode: opcode as u8,
+            opcode: opcode.opcode(),
             length: 0,
+            value: [0; 4],
         }
     }
 }
@@ -204,7 +226,9 @@ impl TryFrom<ControlPoint> for ControlOpcode {
             0x66 => Ok(ControlOpcode::StopMeasurement),
             0x67 => Ok(ControlOpcode::StartPeakRfdMeasurement),
             0x68 => Ok(ControlOpcode::StartPeakRfdMeasurementSeries),
-            0x69 => Ok(ControlOpcode::AddCalibrationPoint),
+            0x69 => Ok(ControlOpcode::AddCalibrationPoint(f32::from_le_bytes(
+                value.value,
+            ))),
             0x6A => Ok(ControlOpcode::SaveCalibration),
             0x6B => Ok(ControlOpcode::GetAppVersion),
             0x6C => Ok(ControlOpcode::GetErrorInfo),
@@ -218,11 +242,51 @@ impl TryFrom<ControlPoint> for ControlOpcode {
 }
 
 impl GattValue for ControlPoint {
-    const MIN_SIZE: usize = 2;
-    const MAX_SIZE: usize = 2;
+    // The length field may be omitted if there is no payload
+    const MIN_SIZE: usize = 1;
+    const MAX_SIZE: usize = 6;
 
     fn from_gatt(data: &[u8]) -> Self {
-        *bytemuck::from_bytes(data)
+        if data.len() < Self::MIN_SIZE || data.len() > Self::MAX_SIZE {
+            defmt::error!(
+                "Bad control point received: opcode: {:X} len: {}",
+                data[0],
+                data.len()
+            );
+            return ControlPoint::default();
+        }
+        let opcode = data[0];
+        let length = *data.get(1).unwrap_or(&0);
+        if length == 0 {
+            return Self {
+                opcode,
+                ..Default::default()
+            };
+        }
+        if length as usize != data.len() - 2 {
+            defmt::error!(
+                "Length mismatch. Length: {}. Payload size: {}",
+                length,
+                data.len() - 2
+            );
+            return Self::default();
+        }
+
+        if length > 4 {
+            defmt::error!("Invalid length: {}", length);
+            return ControlPoint {
+                opcode,
+                ..Default::default()
+            };
+        }
+
+        let mut value = [0; 4];
+        value[0..length as usize].copy_from_slice(&data[2..2 + length as usize]);
+        Self {
+            opcode,
+            length,
+            value,
+        }
     }
 
     fn to_gatt(&self) -> &[u8] {
@@ -427,6 +491,7 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel, wakeu
                     }
                     Ok(ControlOpcode::SampleBattery) => {
                         // Fake a battery voltage measurement
+                        // TODO: add a real battery voltage measurement
                         if notify_data(DataOpcode::BatteryVoltage(3000), &conn).is_err() {
                             defmt::error!("Battery voltage response failed to send");
                         }
@@ -443,8 +508,23 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel, wakeu
                         };
                     }
                     Ok(ControlOpcode::Shutdown) => {
-                        // TODO: make a note to go to sleep without advertising after
-                        // disconnect
+                        // no-op. The peer should disconnect, which sends us to system oFF.
+                    }
+                    Ok(ControlOpcode::AddCalibrationPoint(known_weight)) => {
+                        if measure_ch
+                            .try_send(weight::Command::AddCalibrationPoint(known_weight))
+                            .is_err()
+                        {
+                            defmt::error!("Failed to send AddCalibrationPoint");
+                        }
+                    }
+                    Ok(ControlOpcode::SaveCalibration) => {
+                        if measure_ch
+                            .try_send(weight::Command::SaveCalibration)
+                            .is_err()
+                        {
+                            defmt::error!("Failed to send SaveCalibration");
+                        }
                     }
                     _ => (),
                 }

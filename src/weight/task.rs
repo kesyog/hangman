@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use super::calibrate::Calibrator;
+use super::factory_calibration::{self, CalPoint, TwoPoint};
 use super::tare::Tarer;
 #[cfg(feature = "nrf52832")]
 use super::Ads1230;
@@ -50,6 +51,8 @@ struct MeasurementContext {
     median: &'static SharedFilteredAdc,
     calibrator: &'static SharedCalibrator,
     tarer: Tarer<&'static SharedCalibrator>,
+    nvm: Nvm,
+    factory_cal: TwoPoint,
 }
 
 async fn handle_command(cmd: Command, context: &mut MeasurementContext, adc: &SharedAdc) {
@@ -76,6 +79,11 @@ async fn handle_command(cmd: Command, context: &mut MeasurementContext, adc: &Sh
             context.state = MeasurementState::Idle;
         }
         Command::Tare => {
+            if !matches!(context.state, MeasurementState::Idle) {
+                defmt::error!("Can't tare while measuring");
+                return;
+            }
+
             // 1 second
             let warmup = super::sampling_interval_hz();
             // 1 second
@@ -94,6 +102,39 @@ async fn handle_command(cmd: Command, context: &mut MeasurementContext, adc: &Sh
 
             adc.lock().await.power_down();
             context.state = MeasurementState::Idle;
+        }
+        Command::AddCalibrationPoint(weight) => {
+            if !matches!(context.state, MeasurementState::Idle) {
+                defmt::error!("Can't run factory cal while measuring");
+                return;
+            }
+
+            // 1 second
+            let warmup = super::sampling_interval_hz();
+            // 1 second
+            let filter_size = super::sampling_interval_hz();
+            for _ in 0..warmup {
+                let _ = context.calibrator.sample().await;
+            }
+            let mut filter = average::Window::<i32>::new(filter_size);
+            for _ in 0..(filter_size - 1) {
+                let Sample { value, .. } = context.median.sample().await;
+                assert!(filter.add_sample(value).is_none());
+            }
+            let Sample { value, .. } = context.median.sample().await;
+            let reading = filter.add_sample(value).unwrap();
+            context.factory_cal.add_point(CalPoint { weight, reading });
+        }
+        Command::SaveCalibration => {
+            if let Some(factory_calibration::Constants { m, b }) =
+                context.factory_cal.get_cal_constants()
+            {
+                defmt::info!("New calibration: m = {} b = {}", m, b);
+                super::write_calibration(&mut context.nvm, m, b).await;
+                context.calibrator.lock().await.set_calibration(m, b);
+            } else {
+                defmt::error!("Not enough data points to calibrate");
+            }
         }
     }
 }
@@ -162,11 +203,13 @@ pub async fn task_function(rx: MeasureCommandReceiver, adc: Adc, sd: &'static So
         median,
         calibrator,
         tarer,
+        nvm,
+        factory_cal: TwoPoint::default(),
     };
 
     loop {
         if let Ok(cmd) = rx.try_recv() {
-            defmt::info!("Measure task received {} command", cmd);
+            defmt::info!("Measure task received command: {}", cmd);
             handle_command(cmd, &mut context, adc).await;
         }
         if let MeasurementState::Active(..) = context.state {
