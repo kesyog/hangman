@@ -128,7 +128,8 @@ impl Nvm {
             return;
         }
         let raw_cache = bytemuck::bytes_of(&*self.cache);
-        let checksum = checksum(raw_cache);
+        let mut aligned_checksum: Aligned<A32, [u8; 4]> = Aligned::default();
+        *aligned_checksum = checksum(raw_cache);
         self.flash
             .erase(MIN_ADDR, MAX_ADDR)
             .await
@@ -138,7 +139,7 @@ impl Nvm {
             .await
             .expect("Write to succeed");
         self.flash
-            .write(CHECKSUM_ADDR, &checksum)
+            .write(CHECKSUM_ADDR, &*aligned_checksum)
             .await
             .expect("Write to succeed");
     }
