@@ -2003,7 +2003,7 @@
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid 4607cbd9-17a9-4eca-adaf-c3d707e4e81e)
   )
-  (text "E+: Red\nE-: Black\nIN-: White\nIN+: Green/Blue\nShield: Yellow"
+  (text "E+: Red\nE-: Black\nIN+: Green/Blue\nIN-: White\nShield: Yellow"
     (at 14.605 119.38 0)
     (effects (font (size 1.27 1.27)) (justify left bottom))
     (uuid 599ab73c-d7ff-4954-b3f7-b03fa22fa050)
