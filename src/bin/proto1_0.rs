@@ -115,9 +115,9 @@ async fn main(spawner: Spawner) -> ! {
     };
 
     // Enable analog supply and ADC
-    let mut vdda_on = gpio::Output::new(
+    let vdda_on = gpio::Output::new(
         p.P0_13.degrade(),
-        gpio::Level::Low,
+        gpio::Level::High,
         gpio::OutputDrive::Standard,
     );
     let adc_data = gpio::Input::new(p.P0_20.degrade(), gpio::Pull::None);
@@ -140,11 +140,9 @@ async fn main(spawner: Spawner) -> ! {
     sleep::register_system_off_callback(Box::new(move || {
         // Power down ADC
         pwdn.set_low();
-        // Power down analog supply to load cell
-        vdda_on.set_high();
     }));
 
-    let mut adc = Ads1230::new(adc_data, adc_clock, delay);
+    let mut adc = Ads1230::new(adc_data, adc_clock, vdda_on, delay);
     adc.schedule_offset_calibration().await;
 
     let ch: &MeasureCommandChannel = make_static!(Channel::new());

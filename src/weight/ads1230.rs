@@ -17,6 +17,7 @@ use super::{Sample, SampleProducerMut};
 use crate::{blocking_hal::prelude::_embedded_hal_blocking_delay_DelayUs, util, SharedDelay};
 use embassy_nrf::gpio::{AnyPin, Input, Output};
 use embassy_time::Instant;
+use embassy_time::{Duration, Timer};
 
 enum PowerState {
     Off,
@@ -34,6 +35,7 @@ enum Followup {
 pub struct Ads1230<'d> {
     data: Input<'d, AnyPin>,
     clock: Output<'d, AnyPin>,
+    vdda_on: Output<'d, AnyPin>,
     state: PowerState,
     delay: &'static SharedDelay,
 }
@@ -42,12 +44,14 @@ impl<'d> Ads1230<'d> {
     pub fn new(
         data: Input<'d, AnyPin>,
         mut clock: Output<'d, AnyPin>,
+        vdda_on: Output<'d, AnyPin>,
         delay: &'static SharedDelay,
     ) -> Self {
         clock.set_high();
         Self {
             data,
             clock,
+            vdda_on,
             state: PowerState::Off,
             delay,
         }
@@ -59,11 +63,16 @@ impl<'d> Ads1230<'d> {
 
     pub fn power_down(&mut self) {
         self.clock.set_high();
+        self.vdda_on.set_high();
         self.state = PowerState::Off;
     }
 
     pub async fn power_up(&mut self) {
         self.clock.set_low();
+        self.vdda_on.set_low();
+        // Give plenty of time (relative to Proto1.0 RC time constants) to for the analog supply
+        // voltage to settle
+        Timer::after(Duration::from_micros(100)).await;
         self.state = PowerState::On;
     }
 
