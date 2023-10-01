@@ -35,7 +35,7 @@ use embassy_sync::{channel::Channel, mutex::Mutex};
 use embassy_time::{Duration, Timer};
 use embedded_alloc::Heap;
 use hangman::{
-    blocking_hal,
+    battery_voltage, blocking_hal,
     button::{self, Button},
     gatt, pac, sleep, util,
     weight::{self, Ads1230},
@@ -50,6 +50,10 @@ use static_cell::make_static;
 static HEAP: Heap = Heap::empty();
 // TODO: how to enforce this in the linker script?
 const HEAP_SIZE: usize = 1024;
+
+embassy_nrf::bind_interrupts!(struct Irqs {
+    SAADC => embassy_nrf::saadc::InterruptHandler;
+});
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) -> ! {
@@ -123,6 +127,7 @@ async fn main(spawner: Spawner) -> ! {
         gpio::Level::High,
         gpio::OutputDrive::Standard,
     );
+
     // Not supposed to power up the ADS1230 until at least 10us after the poewr supplies have come
     // up. Insert a delay to be safe.
     Timer::after(Duration::from_micros(10)).await;
@@ -131,8 +136,7 @@ async fn main(spawner: Spawner) -> ! {
         gpio::Level::High,
         gpio::OutputDrive::Standard,
     );
-    let mut adc = Ads1230::new(adc_data, adc_clock, delay);
-    adc.schedule_offset_calibration().await;
+
     sleep::register_system_off_callback(Box::new(move || {
         // Power down ADC
         pwdn.set_low();
@@ -140,17 +144,31 @@ async fn main(spawner: Spawner) -> ! {
         vdda_on.set_high();
     }));
 
-    let ch: &MeasureCommandChannel = make_static!(Channel::new());
+    let mut adc = Ads1230::new(adc_data, adc_clock, delay);
+    adc.schedule_offset_calibration().await;
 
-    // Start tasks
+    let ch: &MeasureCommandChannel = make_static!(Channel::new());
+    spawner.must_spawn(weight::task_function(ch.receiver(), adc, sd));
+
+    // Sample battery voltage while sampling to get a reading under load
+    ch.sender()
+        .send(weight::Command::StartSampling(weight::SampleType::Raw(
+            None,
+        )))
+        .await;
+    let battery_voltage = battery_voltage::one_time_sample(p.SAADC, Irqs).await;
+    defmt::info!("Battery voltage: {} mV", battery_voltage);
+    ch.sender().send(weight::Command::StopSampling).await;
+
+    // This will run the offset calibration that we scheduled above
+    ch.sender().send(weight::Command::Tare).await;
+    // Allow time for tare to complete before starting advertising
+    // TODO: make this deterministic
+    Timer::after(Duration::from_millis(1000)).await;
+
     // Use SW1 = power button for wakeup
     let wakeup_button = Button::new(p.P0_09.degrade(), button::Polarity::ActiveLow, true);
     spawner.must_spawn(gatt::ble_task(sd, ch.sender(), wakeup_button));
-    spawner.must_spawn(weight::task_function(ch.receiver(), adc, sd));
-
-    Timer::after(Duration::from_millis(1000)).await;
-    // This will run the offset calibration that we scheduled above
-    ch.sender().send(weight::Command::Tare).await;
 
     loop {
         core::future::pending::<()>().await;

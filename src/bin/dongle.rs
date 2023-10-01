@@ -37,7 +37,7 @@ use embedded_alloc::Heap;
 #[cfg(feature = "console")]
 use hangman::console;
 use hangman::{
-    blocking_hal,
+    battery_voltage, blocking_hal,
     button::{self, Button},
     gatt, leds, pac, util,
     weight::{self, Hx711},
@@ -56,6 +56,12 @@ const HEAP_SIZE: usize = 1024;
 #[cfg(feature = "console")]
 embassy_nrf::bind_interrupts!(struct Irqs {
     USBD => embassy_nrf::usb::InterruptHandler<embassy_nrf::peripherals::USBD>;
+    SAADC => embassy_nrf::saadc::InterruptHandler;
+});
+
+#[cfg(not(feature = "console"))]
+embassy_nrf::bind_interrupts!(struct Irqs {
+    SAADC => embassy_nrf::saadc::InterruptHandler;
 });
 
 #[embassy_executor::task]
@@ -154,19 +160,31 @@ async fn main(spawner: Spawner) -> ! {
     let (usb, class) = console::board::setup_usb(p.USBD, Irqs, usb_detect_ref);
 
     let ch: &MeasureCommandChannel = make_static!(Channel::new());
+    spawner.must_spawn(weight::task_function(ch.receiver(), hx711, sd));
+    // Sample battery voltage while sampling to get a reading under load
+    ch.sender()
+        .send(weight::Command::StartSampling(weight::SampleType::Raw(
+            None,
+        )))
+        .await;
+    let battery_voltage = battery_voltage::one_time_sample(p.SAADC, Irqs).await;
+    defmt::info!("Battery voltage: {} mV", battery_voltage);
+    ch.sender().send(weight::Command::StopSampling).await;
 
-    // Start tasks
     #[cfg(feature = "console")]
     {
         spawner.must_spawn(console::task::usb_task(usb));
         spawner.must_spawn(console::task::echo_task(class));
     }
+
+    ch.sender().send(weight::Command::Tare).await;
+    // Allow time for tare to complete before starting advertising
+    // TODO: make this deterministic
+    Timer::after(Duration::from_millis(1000)).await;
+
+    // Use user button for wakeup
     let wakeup_button = Button::new(p.P1_06.degrade(), button::Polarity::ActiveLow, true);
     spawner.must_spawn(gatt::ble_task(sd, ch.sender(), wakeup_button));
-    spawner.must_spawn(weight::task_function(ch.receiver(), hx711, sd));
-
-    Timer::after(Duration::from_millis(1000)).await;
-    ch.sender().send(weight::Command::Tare).await;
 
     loop {
         core::future::pending::<()>().await;

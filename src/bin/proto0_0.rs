@@ -35,7 +35,7 @@ use embassy_sync::{channel::Channel, mutex::Mutex};
 use embassy_time::{Duration, Timer};
 use embedded_alloc::Heap;
 use hangman::{
-    blocking_hal,
+    battery_voltage, blocking_hal,
     button::{self, Button},
     gatt, pac, util,
     weight::{self, Hx711},
@@ -50,6 +50,10 @@ use static_cell::make_static;
 static HEAP: Heap = Heap::empty();
 // TODO: how to enforce this in the linker script?
 const HEAP_SIZE: usize = 1024;
+
+embassy_nrf::bind_interrupts!(struct Irqs {
+    SAADC => embassy_nrf::saadc::InterruptHandler;
+});
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice, usb_detect: &'static SoftwareVbusDetect) -> ! {
@@ -94,24 +98,6 @@ async fn main(spawner: Spawner) -> ! {
     let p = embassy_nrf::init(config());
     let syst = pac::CorePeripherals::take().unwrap().SYST;
     let delay: &'static SharedDelay = make_static!(Mutex::new(SysTickDelay::new(syst)));
-    /*
-    let green_led = gpio::Output::new(
-        p.P0_06.degrade(),
-        gpio::Level::High,
-        gpio::OutputDrive::Standard,
-    );
-    let rgb_red_led = gpio::Output::new(
-        p.P0_08.degrade(),
-        gpio::Level::High,
-        gpio::OutputDrive::Standard,
-    );
-    let rgb_blue_led = gpio::Output::new(
-        p.P0_12.degrade(),
-        gpio::Level::High,
-        gpio::OutputDrive::Standard,
-    );
-    leds::singleton_init(rgb_blue_led, rgb_red_led, green_led).unwrap();
-    */
 
     // orange DATA 0.17
     let hx711_data = gpio::Input::new(p.P0_17.degrade(), gpio::Pull::None);
@@ -145,15 +131,26 @@ async fn main(spawner: Spawner) -> ! {
     };
 
     let ch: &MeasureCommandChannel = make_static!(Channel::new());
+    spawner.must_spawn(weight::task_function(ch.receiver(), hx711, sd));
 
-    // Start tasks
+    // Sample battery voltage while sampling to get a reading under load
+    ch.sender()
+        .send(weight::Command::StartSampling(weight::SampleType::Raw(
+            None,
+        )))
+        .await;
+    let battery_voltage = battery_voltage::one_time_sample(p.SAADC, Irqs).await;
+    defmt::info!("Battery voltage: {} mV", battery_voltage);
+    ch.sender().send(weight::Command::StopSampling).await;
+
+    ch.sender().send(weight::Command::Tare).await;
+    // Allow time for tare to complete before starting advertising
+    // TODO: make this deterministic
+    Timer::after(Duration::from_millis(1000)).await;
+
     // Use SW1 = power button for wakeup
     let wakeup_button = Button::new(p.P0_29.degrade(), button::Polarity::ActiveLow, true);
     spawner.must_spawn(gatt::ble_task(sd, ch.sender(), wakeup_button));
-    spawner.must_spawn(weight::task_function(ch.receiver(), hx711, sd));
-
-    Timer::after(Duration::from_millis(1000)).await;
-    ch.sender().send(weight::Command::Tare).await;
 
     loop {
         core::future::pending::<()>().await;

@@ -17,6 +17,7 @@
 #![feature(async_fn_in_trait)]
 #![forbid(unsafe_op_in_unsafe_fn)]
 
+pub mod battery_voltage;
 pub mod button;
 #[cfg(feature = "console")]
 pub mod console;

@@ -15,7 +15,7 @@
 extern crate alloc;
 
 use crate::button::Button;
-use crate::{weight, MEASURE_COMMAND_CHANNEL_SIZE};
+use crate::{battery_voltage, weight, MEASURE_COMMAND_CHANNEL_SIZE};
 use alloc::boxed::Box;
 use bytemuck_derive::{Pod, Zeroable};
 use defmt::Format;
@@ -416,6 +416,12 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel, wakeu
     defmt::debug!("Starting BLE task");
     let server = server::get();
 
+    // Check for low battery voltage at startup
+    if battery_voltage::is_critically_low() {
+        defmt::error!("🔋💀 Battery voltage critically low!");
+        system_off(measure_ch, wakeup_button).await;
+    }
+
     // crate::leds::singleton_get().lock().await.rgb_blue.set_low();
     const ADVERTISED_NAME_STR: Result<&str, core::str::Utf8Error> =
         core::str::from_utf8(ADVERTISED_NAME);
@@ -436,13 +442,6 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel, wakeu
         }
     };
     defmt::info!("Peer connected");
-    {
-        /*
-        let mut leds = crate::leds::singleton_get().lock().await;
-        leds.rgb_blue.set_high();
-        leds.green.set_low();
-        */
-    }
 
     gatt_server::run(&conn, server, |e| match e {
         ServerEvent::Progressor(e) => match e {
@@ -451,6 +450,15 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel, wakeu
                 match control_op {
                     Ok(op) => defmt::info!("ProgressorService.ControlWrite: {}", op),
                     Err(op) => defmt::warn!("ProgressorService.ControlWrite: 0x{:02X}", op),
+                }
+                if battery_voltage::is_low() {
+                    defmt::error!("Low battery warning");
+                    if notify_data(DataOpcode::LowPowerWarning, &conn).is_err() {
+                        defmt::error!("Failed to notify low power warning");
+                    };
+                    if conn.disconnect().is_err() {
+                        defmt::error!("Failed to disconnect");
+                    }
                 }
                 match control_op {
                     Ok(ControlOpcode::Tare) => {
@@ -490,9 +498,11 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel, wakeu
                         }
                     }
                     Ok(ControlOpcode::SampleBattery) => {
-                        // Fake a battery voltage measurement
-                        // TODO: add a real battery voltage measurement
-                        if notify_data(DataOpcode::BatteryVoltage(3000), &conn).is_err() {
+                        let battery_voltage_mv = battery_voltage::get_battery_voltage()
+                            .expect("Battery to have been sampled");
+                        if notify_data(DataOpcode::BatteryVoltage(battery_voltage_mv), &conn)
+                            .is_err()
+                        {
                             defmt::error!("Battery voltage response failed to send");
                         }
                     }
@@ -540,5 +550,5 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel, wakeu
     measure_ch.send(weight::Command::StopSampling).await;
 
     defmt::info!("Disconnected");
-    system_off(measure_ch, wakeup_button).await
+    system_off(measure_ch, wakeup_button).await;
 }

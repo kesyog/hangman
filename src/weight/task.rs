@@ -69,12 +69,6 @@ async fn handle_command(cmd: Command, context: &mut MeasurementContext, adc: &Sh
             context.state = MeasurementState::Active(measurement_cb, Instant::now());
         }
         Command::StopSampling => {
-            {
-                /*
-                let mut leds = crate::leds::singleton_get().lock().await;
-                leds.rgb_red.set_high();
-                */
-            }
             adc.lock().await.power_down();
             context.state = MeasurementState::Idle;
         }
@@ -84,10 +78,10 @@ async fn handle_command(cmd: Command, context: &mut MeasurementContext, adc: &Sh
                 return;
             }
 
-            // 1 second
-            let warmup = super::sampling_interval_hz();
-            // 1 second
-            let filter_size = super::sampling_interval_hz();
+            // 0.5 second
+            let warmup = super::sampling_interval_hz() / 2;
+            // 0.5 second
+            let filter_size = super::sampling_interval_hz() / 2;
             for _ in 0..warmup {
                 let _ = context.calibrator.sample().await;
             }

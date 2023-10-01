@@ -18,15 +18,10 @@ it'll even help my fingers get stronger.
 
 ## Status
 
-Weight measurement works great with the Tindeq mobile app. Battery life is guesstimated to be in the
-range of several months to a couple years.
+The scale is feature-complete. Weight measurement works great with the Tindeq mobile app. Battery
+life is guesstimated to be in the range of several months to a couple of years depending on usage.
 
-While the scale is largely feature-complete, there are still a few more things planned:
-
-* Battery voltage sampling to allow for graceful low battery shutdown
-* Miscellaneous code cleanup and polish
-* More documentation for anyone wants to follow in my footsteps
-* A bootloader to support device firmware update (DFU) over Bluetooth
+There are still a few more software updates planned. See the Issues section for the major ones.
 
 ### Hardware revisions
 
