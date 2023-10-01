@@ -27,6 +27,9 @@ pub(crate) struct TwoPoint {
     other: Option<CalPoint>,
 }
 
+/// Calibration constants
+///
+/// weight = m * (reading - b)
 #[derive(Copy, Clone, Format)]
 pub(crate) struct Constants {
     pub(crate) m: f32,

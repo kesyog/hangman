@@ -78,7 +78,7 @@ impl defmt::Format for Command {
             Command::StopSampling => defmt::write!(fmt, "StopSampling"),
             Command::Tare => defmt::write!(fmt, "Tare"),
             Command::AddCalibrationPoint(known_weight) => {
-                defmt::write!(fmt, "AddCalibrationPoint: {}", known_weight)
+                defmt::write!(fmt, "AddCalibrationPoint: {}", known_weight);
             }
             Command::SaveCalibration => defmt::write!(fmt, "SaveCalibration"),
         }

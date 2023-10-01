@@ -20,11 +20,12 @@ use alloc::boxed::Box;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use once_cell::sync::OnceCell;
 
-static SYSTEM_OFF_CB: OnceCell<
-    Mutex<CriticalSectionRawMutex, Option<Box<dyn FnOnce() -> () + Send + Sync>>>,
-> = OnceCell::new();
+pub type SystemOffCb = Box<dyn FnOnce() + Send + Sync>;
 
-pub fn register_system_off_callback(callback: Box<dyn FnOnce() -> () + Send + Sync>) {
+static SYSTEM_OFF_CB: OnceCell<Mutex<CriticalSectionRawMutex, Option<SystemOffCb>>> =
+    OnceCell::new();
+
+pub fn register_system_off_callback(callback: SystemOffCb) {
     if let Err(_) = SYSTEM_OFF_CB.set(Mutex::new(Some(callback))) {
         defmt::error!("SYSTEM OFF callback already registered");
     }

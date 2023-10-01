@@ -58,12 +58,9 @@ struct MeasurementContext {
 async fn handle_command(cmd: Command, context: &mut MeasurementContext, adc: &SharedAdc) {
     match cmd {
         Command::StartSampling(measurement_cb) => {
-            // TODO: check state before doing anything
-            {
-                /*
-                let mut leds = crate::leds::singleton_get().lock().await;
-                leds.rgb_red.set_low();
-                */
+            if !matches!(context.state, MeasurementState::Idle) {
+                defmt::error!("Can't start sampling while already measuring");
+                return;
             }
             adc.lock().await.power_up().await;
             context.state = MeasurementState::Active(measurement_cb, Instant::now());
