@@ -428,7 +428,6 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel, wakeu
         system_off(measure_ch, wakeup_button).await;
     }
 
-    // crate::leds::singleton_get().lock().await.rgb_blue.set_low();
     const ADVERTISED_NAME_STR: Result<&str, core::str::Utf8Error> =
         core::str::from_utf8(ADVERTISED_NAME);
     defmt::info!("Advertising as {}", ADVERTISED_NAME_STR.unwrap());
@@ -551,7 +550,6 @@ pub async fn ble_task(sd: &'static Softdevice, measure_ch: MeasureChannel, wakeu
         },
     })
     .await;
-    // crate::leds::singleton_get().lock().await.green.set_high();
     // Make sure we stop measuring on disconnect
     measure_ch.send(weight::Command::StopSampling).await;
 

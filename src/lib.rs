@@ -22,7 +22,6 @@ pub mod button;
 #[cfg(feature = "console")]
 pub mod console;
 pub mod gatt;
-pub mod leds;
 pub mod nonvolatile;
 pub mod sleep;
 pub mod util;

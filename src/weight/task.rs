@@ -19,7 +19,7 @@ use super::tare::Tarer;
 use super::Ads1230;
 #[cfg(feature = "nrf52840")]
 use super::Hx711;
-use super::{average, median::Median, Command, Sample, SampleProducerMut, SampleType};
+use super::{average, median::Median, Command, RawReading, Sample, SampleProducerMut, SampleType};
 use crate::nonvolatile::Nvm;
 use crate::MeasureCommandReceiver;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -107,7 +107,7 @@ async fn handle_command(cmd: Command, context: &mut MeasurementContext, adc: &Sh
             for _ in 0..warmup {
                 let _ = context.calibrator.sample().await;
             }
-            let mut filter = average::Window::<i32>::new(filter_size);
+            let mut filter = average::Window::<RawReading>::new(filter_size);
             for _ in 0..(filter_size - 1) {
                 let Sample { value, .. } = context.median.sample().await;
                 assert!(filter.add_sample(value).is_none());

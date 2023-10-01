@@ -26,7 +26,7 @@ static SYSTEM_OFF_CB: OnceCell<Mutex<CriticalSectionRawMutex, Option<SystemOffCb
     OnceCell::new();
 
 pub fn register_system_off_callback(callback: SystemOffCb) {
-    if let Err(_) = SYSTEM_OFF_CB.set(Mutex::new(Some(callback))) {
+    if SYSTEM_OFF_CB.set(Mutex::new(Some(callback))).is_err() {
         defmt::error!("SYSTEM OFF callback already registered");
     }
 }

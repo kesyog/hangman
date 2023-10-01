@@ -39,7 +39,7 @@ use hangman::console;
 use hangman::{
     battery_voltage, blocking_hal,
     button::{self, Button},
-    gatt, leds, pac, util,
+    gatt, pac, util,
     weight::{self, Hx711},
     MeasureCommandChannel, SharedDelay,
 };
@@ -108,22 +108,13 @@ async fn main(spawner: Spawner) -> ! {
     let p = embassy_nrf::init(config());
     let syst = pac::CorePeripherals::take().unwrap().SYST;
     let delay: &'static SharedDelay = make_static!(Mutex::new(SysTickDelay::new(syst)));
-    let green_led = gpio::Output::new(
+
+    // For debugging
+    let _green_led = gpio::Output::new(
         p.P0_06.degrade(),
         gpio::Level::High,
         gpio::OutputDrive::Standard,
     );
-    let rgb_red_led = gpio::Output::new(
-        p.P0_08.degrade(),
-        gpio::Level::High,
-        gpio::OutputDrive::Standard,
-    );
-    let rgb_blue_led = gpio::Output::new(
-        p.P0_12.degrade(),
-        gpio::Level::High,
-        gpio::OutputDrive::Standard,
-    );
-    leds::singleton_init(rgb_blue_led, rgb_red_led, green_led).unwrap();
 
     // orange DATA 0.17
     let hx711_data = gpio::Input::new(p.P0_17.degrade(), gpio::Pull::None);

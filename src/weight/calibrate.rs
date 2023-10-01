@@ -12,25 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{Sample, SampleProducerMut};
+use super::{RawReading, Sample, SampleProducerMut};
 
 pub struct Calibrator<T> {
     sampler: T,
     m: f32,
-    b: i32,
+    b: RawReading,
 }
 
 impl<T> Calibrator<T> {
-    pub fn new(sampler: T, m: f32, b: i32) -> Self {
+    pub fn new(sampler: T, m: f32, b: RawReading) -> Self {
         Self { sampler, m, b }
     }
 
-    pub fn set_calibration(&mut self, m: f32, b: i32) {
+    pub fn set_calibration(&mut self, m: f32, b: RawReading) {
         self.m = m;
         self.b = b;
     }
 
-    fn calibrate(&self, raw_value: i32) -> f32 {
+    fn calibrate(&self, raw_value: RawReading) -> f32 {
         let value = (raw_value - self.b) as f32 * self.m;
         defmt::trace!("Calibrated = {}", value);
         value
@@ -39,7 +39,7 @@ impl<T> Calibrator<T> {
 
 impl<T> SampleProducerMut for Calibrator<T>
 where
-    T: SampleProducerMut<Output = i32>,
+    T: SampleProducerMut<Output = RawReading>,
 {
     type Output = f32;
 
@@ -57,7 +57,7 @@ where
 
 impl<T> SampleProducerMut for &mut Calibrator<T>
 where
-    T: SampleProducerMut<Output = i32>,
+    T: SampleProducerMut<Output = RawReading>,
 {
     type Output = f32;
 

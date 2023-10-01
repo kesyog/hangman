@@ -40,9 +40,8 @@ static SAMPLING_INTERVAL_HZ: OnceCell<usize> = OnceCell::new();
 pub const DEFAULT_CALIBRATION_M: f32 = 4.6750380809321235e-06;
 pub const DEFAULT_CALIBRATION_B: i32 = -100598;
 
-// TODO: use this everywhere
-type Reading = i32;
-pub type OnRawMeasurementCb = dyn FnMut(Duration, i32);
+type RawReading = i32;
+pub type OnRawMeasurementCb = dyn FnMut(Duration, RawReading);
 pub type OnCalibratedMeasurementCb = dyn FnMut(Duration, f32);
 pub type OnTaredMeasurementCb = dyn FnMut(Duration, f32);
 
@@ -101,7 +100,7 @@ pub fn sampling_interval_hz() -> usize {
         .expect("weight::init to have been called")
 }
 
-async fn write_calibration(nvm: &mut Nvm, cal_m: f32, cal_b: i32) {
+async fn write_calibration(nvm: &mut Nvm, cal_m: f32, cal_b: RawReading) {
     nvm.write_cal_m(cal_m);
     nvm.write_cal_b(cal_b);
     nvm.flush().await;

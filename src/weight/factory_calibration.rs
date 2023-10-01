@@ -12,18 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::Reading;
+use super::RawReading;
 use defmt::Format;
 
 #[derive(Copy, Clone, Format)]
 pub(crate) struct CalPoint {
     pub(crate) weight: f32,
-    pub(crate) reading: Reading,
+    pub(crate) reading: RawReading,
 }
 
 #[derive(Copy, Clone, Default, Format)]
 pub(crate) struct TwoPoint {
-    zero: Option<Reading>,
+    zero: Option<RawReading>,
     other: Option<CalPoint>,
 }
 
@@ -33,7 +33,7 @@ pub(crate) struct TwoPoint {
 #[derive(Copy, Clone, Format)]
 pub(crate) struct Constants {
     pub(crate) m: f32,
-    pub(crate) b: Reading,
+    pub(crate) b: RawReading,
 }
 
 impl TwoPoint {
