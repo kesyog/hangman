@@ -34,7 +34,7 @@ use embassy_nrf::{
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, mutex::Mutex};
 use embedded_alloc::Heap;
 use hangman::{
-    blocking_hal, gatt, pac,
+    ble, blocking_hal, pac,
     weight::{self, average, Hx711},
 };
 use nrf_softdevice::{self as _, Softdevice};
@@ -89,7 +89,7 @@ async fn main(spawner: Spawner) -> ! {
     let syst = pac::CorePeripherals::take().unwrap().SYST;
     let delay: &'static SharedDelay = make_static!(Mutex::new(SysTickDelay::new(syst)));
 
-    let sd = Softdevice::enable(&gatt::softdevice_config());
+    let sd = ble::init_softdevice();
     spawner.must_spawn(softdevice_task(sd));
 
     // It's recommended to start the SoftDevice before doing anything else

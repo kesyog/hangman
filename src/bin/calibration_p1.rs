@@ -35,7 +35,7 @@ use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, mutex::M
 use embassy_time::{Duration, Timer};
 use embedded_alloc::Heap;
 use hangman::{
-    blocking_hal, gatt, pac,
+    ble, blocking_hal, pac,
     weight::{self, average, Ads1230},
 };
 use nrf_softdevice::{self as _, Softdevice};
@@ -90,15 +90,15 @@ async fn main(spawner: Spawner) -> ! {
     let syst = pac::CorePeripherals::take().unwrap().SYST;
     let delay: &'static SharedDelay = make_static!(Mutex::new(SysTickDelay::new(syst)));
 
-    let sd = Softdevice::enable(&gatt::softdevice_config());
+    let sd = ble::init_softdevice();
     spawner.must_spawn(softdevice_task(sd));
 
     // It's recommended to start the SoftDevice before doing anything else
     embassy_futures::yield_now().await;
 
-    let _vdda_on = gpio::Output::new(
+    let vdda_on = gpio::Output::new(
         p.P0_13.degrade(),
-        gpio::Level::Low,
+        gpio::Level::High,
         gpio::OutputDrive::Standard,
     );
     let adc_data = gpio::Input::new(p.P0_20.degrade(), gpio::Pull::None);
@@ -116,7 +116,7 @@ async fn main(spawner: Spawner) -> ! {
         gpio::Level::High,
         gpio::OutputDrive::Standard,
     );
-    let mut adc = Ads1230::new(adc_data, adc_clock, delay);
+    let mut adc = Ads1230::new(adc_data, adc_clock, vdda_on, delay);
     adc.schedule_offset_calibration().await;
 
     let ch: &hangman::MeasureCommandChannel = make_static!(Channel::new());

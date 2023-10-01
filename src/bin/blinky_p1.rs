@@ -26,12 +26,12 @@ extern crate alloc;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::{
-    config::{Config, Debug, HfclkSource, LfclkSource},
+    config::{Config, HfclkSource, LfclkSource},
     gpio::{self, Pin},
 };
 use embassy_time::{Duration, Timer};
 use embedded_alloc::Heap;
-use hangman::{gatt, pac};
+use hangman::{ble, pac};
 use nrf_softdevice::{self as _, Softdevice};
 use panic_probe as _;
 // use static_cell::make_static;
@@ -84,7 +84,7 @@ async fn main(spawner: Spawner) -> ! {
 
     let p = embassy_nrf::init(config());
 
-    let sd = Softdevice::enable(&gatt::softdevice_config());
+    let sd = ble::init_softdevice();
     spawner.must_spawn(softdevice_task(sd));
 
     // It's recommended to start the SoftDevice before doing anything else

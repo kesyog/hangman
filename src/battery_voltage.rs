@@ -58,18 +58,18 @@ pub async fn one_time_sample(
     let mut adc = Saadc::new(adc_peripheral, irqs, config, [channel_config]);
 
     adc.calibrate().await;
-    let reading = sample_battery_voltage(&mut adc).await;
+    let reading = sample(&mut adc).await;
     BATTERY_VOLTAGE
         .set(reading)
         .expect("one_time_sample to be called at most once");
     reading
 }
 
-pub fn get_battery_voltage() -> Option<u32> {
+pub fn get_startup_reading() -> Option<u32> {
     BATTERY_VOLTAGE.get().copied()
 }
 
-async fn sample_battery_voltage<'a>(adc: &mut Saadc<'a, 1>) -> u32 {
+async fn sample<'a>(adc: &mut Saadc<'a, 1>) -> u32 {
     let mut buffer = [0i16];
     adc.sample(&mut buffer).await;
     let battery_voltage = buffer[0] as f32 * ADC_SCALE_FACTOR;
@@ -77,9 +77,9 @@ async fn sample_battery_voltage<'a>(adc: &mut Saadc<'a, 1>) -> u32 {
 }
 
 pub fn is_low() -> bool {
-    get_battery_voltage().expect("Battery to be sampled") <= LOW_BATTERY_THRESHOLD_MV
+    get_startup_reading().expect("Battery to be sampled") <= LOW_BATTERY_THRESHOLD_MV
 }
 
 pub fn is_critically_low() -> bool {
-    get_battery_voltage().expect("Battery to be sampled") <= CRITICAL_BATTERY_THRESHOLD_MV
+    get_startup_reading().expect("Battery to be sampled") <= CRITICAL_BATTERY_THRESHOLD_MV
 }

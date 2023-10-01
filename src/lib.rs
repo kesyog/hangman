@@ -18,10 +18,10 @@
 #![forbid(unsafe_op_in_unsafe_fn)]
 
 pub mod battery_voltage;
+pub mod ble;
 pub mod button;
 #[cfg(feature = "console")]
 pub mod console;
-pub mod gatt;
 pub mod nonvolatile;
 pub mod sleep;
 pub mod util;
@@ -51,9 +51,8 @@ compile_error!("one of `nrf52832` and `nrf52840` must be enabled");
 pub type SharedDelay = Mutex<NoopRawMutex, SysTickDelay>;
 pub type MeasureCommandChannel =
     Channel<NoopRawMutex, weight::Command, MEASURE_COMMAND_CHANNEL_SIZE>;
-pub type MeasureCommandReceiver =
-    Receiver<'static, NoopRawMutex, weight::Command, MEASURE_COMMAND_CHANNEL_SIZE>;
-
 // Leave some room for multiple commands to be queued. If this is too small, we can get overwhelmed
 // and deadlock.
 pub const MEASURE_COMMAND_CHANNEL_SIZE: usize = 5;
+pub type MeasureCommandReceiver =
+    Receiver<'static, NoopRawMutex, weight::Command, MEASURE_COMMAND_CHANNEL_SIZE>;

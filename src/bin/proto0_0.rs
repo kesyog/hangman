@@ -35,9 +35,9 @@ use embassy_sync::{channel::Channel, mutex::Mutex};
 use embassy_time::{Duration, Timer};
 use embedded_alloc::Heap;
 use hangman::{
-    battery_voltage, blocking_hal,
+    battery_voltage, ble, blocking_hal,
     button::{self, Button},
-    gatt, pac, util,
+    pac, util,
     weight::{self, Hx711},
     MeasureCommandChannel, SharedDelay,
 };
@@ -115,8 +115,7 @@ async fn main(spawner: Spawner) -> ! {
     // There might be a race condition at startup between USB init and SD init.
     let usb_detect_ref: &SoftwareVbusDetect = make_static!(SoftwareVbusDetect::new(true, true));
 
-    let sd = Softdevice::enable(&gatt::softdevice_config());
-    gatt::server::init(sd).unwrap();
+    let sd = ble::init_softdevice();
     spawner.must_spawn(softdevice_task(sd, usb_detect_ref));
 
     // It's recommended to start the SoftDevice before doing anything else
@@ -150,7 +149,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Use SW1 = power button for wakeup
     let wakeup_button = Button::new(p.P0_29.degrade(), button::Polarity::ActiveLow, true);
-    spawner.must_spawn(gatt::ble_task(sd, ch.sender(), wakeup_button));
+    spawner.must_spawn(ble::task_fn(sd, ch.sender(), wakeup_button));
 
     loop {
         core::future::pending::<()>().await;
