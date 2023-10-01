@@ -386,8 +386,14 @@ async fn advertise(sd: &Softdevice) -> Result<Connection, AdvertiseError> {
         // Primary PHY must be 1M
         primary_phy: Phy::M1,
         secondary_phy: Phy::M2,
-        // TODO: how low can we reduce transmit power and get reasonable performance
-        tx_power: TxPower::ZerodBm,
+        // Empirically, -40dB definitely does not work and -4dB seems to work
+        // There's probably some power savings to be gained here by lowering this further, but the
+        // Nordic guidance suggests diminishing returns and I'd rather err on the side of
+        // rock-solid connectivity.
+        // From Nordic: "At 0dBm with the DC/DC on, the nRF52832 transmitter draws 5.3mA.
+        // Increasing the TX power to +4dBm adds only 2.2mA. Decreasing it to -40 dBm saves only
+        // 2.6mA."
+        tx_power: TxPower::Minus4dBm,
         ..Default::default()
     };
     let adv = ble::peripheral::ConnectableAdvertisement::ScannableUndirected {
