@@ -26,7 +26,8 @@ use embassy_sync::channel::Sender;
 
 type MeasureChannel = Sender<'static, NoopRawMutex, weight::Command, MEASURE_COMMAND_CHANNEL_SIZE>;
 
-// TODO: make this the source of truth for ADVERTISING_DATA
+/// Device name to be used in GAP and advertising data. The Tindeq app requires this to be
+/// something of this form.
 const ADVERTISED_NAME: &[u8] = b"Progressor_1719";
 
 fn softdevice_config() -> nrf_softdevice::Config {

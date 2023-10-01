@@ -12,21 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::ADVERTISED_NAME;
+use arrayvec::ArrayVec;
 use nrf_softdevice::ble::peripheral::AdvertiseError;
 use nrf_softdevice::ble::{Connection, Phy, TxPower};
 use nrf_softdevice::{ble, raw as raw_sd, Softdevice};
 
 const ADVERTISING_TIMEOUT_SEC: u16 = 3 * 60;
-
-#[rustfmt::skip]
-const ADVERTISING_DATA: &[u8] = &[
-    2,
-    raw_sd::BLE_GAP_AD_TYPE_FLAGS as u8,
-    (raw_sd::BLE_GAP_ADV_FLAG_LE_GENERAL_DISC_MODE | raw_sd::BLE_GAP_ADV_FLAG_BR_EDR_NOT_SUPPORTED) as u8,
-    16,
-    raw_sd::BLE_GAP_AD_TYPE_COMPLETE_LOCAL_NAME as u8,
-    b'P', b'r', b'o', b'g', b'r', b'e', b's', b's', b'o', b'r', b'_', b'1', b'7', b'1', b'9',
-];
 
 #[rustfmt::skip]
 const SCAN_RESPONSE_DATA: &[u8] = &[
@@ -35,7 +27,23 @@ const SCAN_RESPONSE_DATA: &[u8] = &[
     0x57, 0xad, 0xfe, 0x4f, 0xd3, 0x13, 0xcc, 0x9d, 0xc9, 0x40, 0xa6, 0x1e, 0x01, 0x17, 0x4e, 0x7e,
 ];
 
+fn advertising_data(name: &[u8]) -> Result<ArrayVec<u8, 27>, ()> {
+    let mut advertising_data: ArrayVec<u8, 27> = ArrayVec::new();
+    advertising_data.push(2);
+    advertising_data.push(raw_sd::BLE_GAP_AD_TYPE_FLAGS as u8);
+    advertising_data.push(
+        (raw_sd::BLE_GAP_ADV_FLAG_LE_GENERAL_DISC_MODE
+            | raw_sd::BLE_GAP_ADV_FLAG_BR_EDR_NOT_SUPPORTED) as u8,
+    );
+    advertising_data.push(name.len() as u8);
+    advertising_data
+        .try_extend_from_slice(name)
+        .map_err(|_| ())?;
+    Ok(advertising_data)
+}
+
 pub(crate) async fn start(sd: &Softdevice) -> Result<Connection, AdvertiseError> {
+    let advertising_data = advertising_data(ADVERTISED_NAME).expect("Valid advertising data");
     let config = ble::peripheral::Config {
         // Timeout is passed as # of 10 ms periods
         timeout: Some(ADVERTISING_TIMEOUT_SEC * (1000 / 10)),
@@ -53,7 +61,7 @@ pub(crate) async fn start(sd: &Softdevice) -> Result<Connection, AdvertiseError>
         ..Default::default()
     };
     let adv = ble::peripheral::ConnectableAdvertisement::ScannableUndirected {
-        adv_data: ADVERTISING_DATA,
+        adv_data: advertising_data.as_slice(),
         scan_data: SCAN_RESPONSE_DATA,
     };
     ble::peripheral::advertise_connectable(sd, adv, &config).await

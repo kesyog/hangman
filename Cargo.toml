@@ -6,6 +6,7 @@ edition = "2021"
 
 [dependencies]
 aligned = "0.4"
+arrayvec = { version = "0.7", default-features = false }
 as-slice = "0.2"
 bytemuck = "1"
 bytemuck_derive = "1.4"
