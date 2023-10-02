@@ -16,7 +16,7 @@ use bytemuck_derive::{Pod, Zeroable};
 use defmt::Format;
 use nrf_softdevice::ble::GattValue;
 
-#[derive(Copy, Clone, Format)]
+#[derive(Copy, Clone)]
 pub(crate) enum DataOpcode {
     BatteryVoltage(u32),
     Weight(f32, u32),
@@ -78,9 +78,9 @@ pub(crate) struct DataPoint {
 impl DataPoint {
     /// Create a new `DataPoint` from scratch
     ///
-    /// One should prefer creating a `DataPoint` from a `DataOpcode` to ensure that all invariants
-    /// are maintained.
-    pub(crate) unsafe fn from_parts(opcode: u8, length: u8, value: [u8; 8]) -> Self {
+    /// One should prefer creating a `DataPoint` from a `DataOpcode` to ensure that the packet is
+    /// correctly formed.
+    pub(crate) fn from_parts(opcode: u8, length: u8, value: [u8; 8]) -> Self {
         DataPoint {
             opcode,
             length,
@@ -100,19 +100,12 @@ impl From<DataOpcode> for DataPoint {
 }
 
 impl GattValue for DataPoint {
+    /// Minimum = one opcode byte and one length byte
     const MIN_SIZE: usize = 2;
-    const MAX_SIZE: usize = 10;
+    const MAX_SIZE: usize = core::mem::size_of::<Self>();
 
-    fn from_gatt(data: &[u8]) -> Self {
-        assert!(data.len() >= 2, "DataPoint is too small");
-        let mut value = [0; 8];
-        let length = usize::min(data.len() - 2, data[1] as usize).min(value.len());
-        value[0..length].copy_from_slice(&data[2..2 + length]);
-        Self {
-            opcode: data[0],
-            length: length as u8,
-            value,
-        }
+    fn from_gatt(_data: &[u8]) -> Self {
+        unimplemented!("DataPoint is only used for outgoing data");
     }
 
     fn to_gatt(&self) -> &[u8] {
@@ -121,7 +114,7 @@ impl GattValue for DataPoint {
     }
 }
 
-#[derive(Copy, Clone, Format)]
+#[derive(Copy, Clone)]
 pub(crate) enum ControlOpcode {
     Tare,
     StartMeasurement,
@@ -136,122 +129,82 @@ pub(crate) enum ControlOpcode {
     Shutdown,
     SampleBattery,
     GetProgressorID,
+    Unknown(u8),
+    Invalid,
 }
 
 impl ControlOpcode {
-    pub(crate) const fn opcode(self) -> u8 {
+    pub(crate) fn is_known_opcode(&self) -> bool {
+        !matches!(self, Self::Unknown(_) | Self::Invalid)
+    }
+}
+
+impl Format for ControlOpcode {
+    fn format(&self, fmt: defmt::Formatter) {
         match self {
-            ControlOpcode::Tare => 0x64,
-            ControlOpcode::StartMeasurement => 0x65,
-            ControlOpcode::StopMeasurement => 0x66,
-            ControlOpcode::StartPeakRfdMeasurement => 0x67,
-            ControlOpcode::StartPeakRfdMeasurementSeries => 0x68,
-            ControlOpcode::AddCalibrationPoint(_) => 0x69,
-            ControlOpcode::SaveCalibration => 0x6A,
-            ControlOpcode::GetAppVersion => 0x6B,
-            ControlOpcode::GetErrorInfo => 0x6C,
-            ControlOpcode::ClearErrorInfo => 0x6D,
-            ControlOpcode::Shutdown => 0x6E,
-            ControlOpcode::SampleBattery => 0x6F,
-            ControlOpcode::GetProgressorID => 0x70,
+            ControlOpcode::Tare => defmt::write!(fmt, "Tare"),
+            ControlOpcode::StartMeasurement => defmt::write!(fmt, "StartMeasurement"),
+            ControlOpcode::StopMeasurement => defmt::write!(fmt, "StopMeasurement"),
+            ControlOpcode::StartPeakRfdMeasurement => defmt::write!(fmt, "StartPeakRfdMeasurement"),
+            ControlOpcode::StartPeakRfdMeasurementSeries => {
+                defmt::write!(fmt, "StartPeakRfdMeasurementSeries");
+            }
+            ControlOpcode::AddCalibrationPoint(val) => {
+                defmt::write!(fmt, "AddCalibrationPoint {=f32}", val);
+            }
+            ControlOpcode::SaveCalibration => defmt::write!(fmt, "SaveCalibration"),
+            ControlOpcode::GetAppVersion => defmt::write!(fmt, "GetAppVersion"),
+            ControlOpcode::GetErrorInfo => defmt::write!(fmt, "GetErrorInfo"),
+            ControlOpcode::ClearErrorInfo => defmt::write!(fmt, "ClearErrorInfo"),
+            ControlOpcode::Shutdown => defmt::write!(fmt, "Shutdown"),
+            ControlOpcode::SampleBattery => defmt::write!(fmt, "SampleBattery"),
+            ControlOpcode::GetProgressorID => defmt::write!(fmt, "GetProgressorID"),
+            ControlOpcode::Unknown(opcode) => defmt::write!(fmt, "Unknown (0x{=u8:X})", opcode),
+            ControlOpcode::Invalid => defmt::write!(fmt, "Invalid"),
         }
     }
 }
 
-#[derive(Copy, Clone, Default, Pod, Zeroable)]
-#[repr(C, packed)]
-pub(crate) struct ControlPoint {
-    opcode: u8,
-    length: u8,
-    value: [u8; 4],
-}
-
-impl From<ControlOpcode> for ControlPoint {
-    fn from(opcode: ControlOpcode) -> Self {
-        Self {
-            opcode: opcode.opcode(),
-            length: 0,
-            value: [0; 4],
-        }
-    }
-}
-
-impl TryFrom<ControlPoint> for ControlOpcode {
-    type Error = u8;
-
-    // TODO: can we derive this?
-    fn try_from(value: ControlPoint) -> Result<Self, Self::Error> {
-        match value.opcode {
-            0x64 => Ok(ControlOpcode::Tare),
-            0x65 => Ok(ControlOpcode::StartMeasurement),
-            0x66 => Ok(ControlOpcode::StopMeasurement),
-            0x67 => Ok(ControlOpcode::StartPeakRfdMeasurement),
-            0x68 => Ok(ControlOpcode::StartPeakRfdMeasurementSeries),
-            0x69 => Ok(ControlOpcode::AddCalibrationPoint(f32::from_le_bytes(
-                value.value,
-            ))),
-            0x6A => Ok(ControlOpcode::SaveCalibration),
-            0x6B => Ok(ControlOpcode::GetAppVersion),
-            0x6C => Ok(ControlOpcode::GetErrorInfo),
-            0x6D => Ok(ControlOpcode::ClearErrorInfo),
-            0x6E => Ok(ControlOpcode::Shutdown),
-            0x6F => Ok(ControlOpcode::SampleBattery),
-            0x70 => Ok(ControlOpcode::GetProgressorID),
-            other => Err(other),
-        }
-    }
-}
-
-impl GattValue for ControlPoint {
-    // The length field may be omitted if there is no payload
+impl GattValue for ControlOpcode {
     const MIN_SIZE: usize = 1;
     const MAX_SIZE: usize = 6;
 
     fn from_gatt(data: &[u8]) -> Self {
         if data.len() < Self::MIN_SIZE || data.len() > Self::MAX_SIZE {
-            defmt::error!(
-                "Bad control point received: opcode: {:X} len: {}",
-                data[0],
-                data.len()
-            );
-            return ControlPoint::default();
+            defmt::error!("Control payload size out of range: {}", data.len());
+            return Self::Invalid;
         }
         let opcode = data[0];
-        let length = *data.get(1).unwrap_or(&0);
-        if length == 0 {
-            return Self {
-                opcode,
-                ..Default::default()
-            };
-        }
-        if length as usize != data.len() - 2 {
-            defmt::error!(
-                "Length mismatch. Length: {}. Payload size: {}",
-                length,
-                data.len() - 2
-            );
-            return Self::default();
-        }
-
-        if length > 4 {
-            defmt::error!("Invalid length: {}", length);
-            return ControlPoint {
-                opcode,
-                ..Default::default()
-            };
-        }
-
-        let mut value = [0; 4];
-        value[0..length as usize].copy_from_slice(&data[2..2 + length as usize]);
-        Self {
-            opcode,
-            length,
-            value,
+        match opcode {
+            0x64 => Self::Tare,
+            0x65 => Self::StartMeasurement,
+            0x66 => Self::StopMeasurement,
+            0x67 => Self::StartPeakRfdMeasurement,
+            0x68 => Self::StartPeakRfdMeasurementSeries,
+            0x69 => {
+                // Allow length to be omitted
+                let float_bytes = match data.len() {
+                    5 => &data[1..5],
+                    6 => &data[2..6],
+                    _ => {
+                        defmt::error!("Invalid payload {=[u8]:X}", data);
+                        return Self::Invalid;
+                    }
+                };
+                Self::AddCalibrationPoint(f32::from_le_bytes(float_bytes.try_into().unwrap()))
+            }
+            0x6A => Self::SaveCalibration,
+            0x6B => Self::GetAppVersion,
+            0x6C => Self::GetErrorInfo,
+            0x6D => Self::ClearErrorInfo,
+            0x6E => Self::Shutdown,
+            0x6F => Self::SampleBattery,
+            0x70 => Self::GetProgressorID,
+            _ => Self::Unknown(opcode),
         }
     }
 
     fn to_gatt(&self) -> &[u8] {
-        let length = self.length + 2;
-        &bytemuck::bytes_of(self)[..length.into()]
+        unimplemented!("ControlOpcode is only used for incoming messages")
     }
 }

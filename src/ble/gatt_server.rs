@@ -14,7 +14,7 @@
 
 extern crate alloc;
 
-use super::gatt_types::{ControlOpcode, ControlPoint, DataOpcode, DataPoint};
+use super::gatt_types::{ControlOpcode, DataOpcode, DataPoint};
 use super::MeasureChannel;
 use crate::{battery_voltage, weight};
 use alloc::boxed::Box;
@@ -48,7 +48,7 @@ struct ProgressorService {
         write,
         write_without_response
     )]
-    control: ControlPoint,
+    control: ControlOpcode,
 }
 
 static GATT_SERVER: OnceCell<Server> = OnceCell::new();
@@ -58,11 +58,12 @@ pub(crate) fn init(sd: &mut Softdevice) -> Result<(), ()> {
 }
 
 fn notify_data(data: DataOpcode, connection: &Connection) -> Result<(), NotifyValueError> {
-    let raw_data = DataPoint::from(data);
-    Server::get().progressor.data_notify(connection, &raw_data)
+    Server::get()
+        .progressor
+        .data_notify(connection, &data.into())
 }
 
-// Test function for sending out raw notifications
+/// Test function for sending out raw notifications
 #[allow(dead_code)]
 fn raw_notify_data(
     opcode: u8,
@@ -73,12 +74,16 @@ fn raw_notify_data(
     let mut payload = [0; 8];
     payload[0..raw_payload.len()].copy_from_slice(raw_payload);
 
-    let data =
-        unsafe { DataPoint::from_parts(opcode, raw_payload.len().try_into().unwrap(), payload) };
+    let data = DataPoint::from_parts(opcode, raw_payload.len().try_into().unwrap(), payload);
     Server::get().progressor.data_notify(connection, &data)
 }
 
 fn on_control_message(message: ControlOpcode, conn: &Connection, measure_ch: &MeasureChannel) {
+    if message.is_known_opcode() {
+        defmt::info!("ProgressorService.ControlWrite: {}", message);
+    } else {
+        defmt::warn!("ProgressorService.ControlWrite: {}", message);
+    }
     match message {
         ControlOpcode::Tare => {
             if measure_ch.try_send(weight::Command::Tare).is_err() {
@@ -162,7 +167,7 @@ pub(crate) async fn run(conn: &Connection, measure_ch: &MeasureChannel) {
 
     nrf_softdevice::ble::gatt_server::run(conn, server, |e| match e {
         ServerEvent::Progressor(e) => match e {
-            ProgressorServiceEvent::ControlWrite(val) => {
+            ProgressorServiceEvent::ControlWrite(value) => {
                 if battery_voltage::is_low() {
                     defmt::error!("Low battery warning");
                     if notify_data(DataOpcode::LowPowerWarning, conn).is_err() {
@@ -172,17 +177,7 @@ pub(crate) async fn run(conn: &Connection, measure_ch: &MeasureChannel) {
                         defmt::error!("Failed to disconnect");
                     }
                 }
-                let control_op = match ControlOpcode::try_from(val) {
-                    Ok(op) => {
-                        defmt::info!("ProgressorService.ControlWrite: {}", op);
-                        op
-                    }
-                    Err(op) => {
-                        defmt::warn!("ProgressorService.ControlWrite: 0x{:02X}", op);
-                        return;
-                    }
-                };
-                on_control_message(control_op, conn, measure_ch);
+                on_control_message(value, conn, measure_ch);
             }
             ProgressorServiceEvent::DataCccdWrite { notifications } => {
                 defmt::info!("DataCccdWrite: {}", notifications);
