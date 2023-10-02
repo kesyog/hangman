@@ -76,11 +76,11 @@ fn config() -> Config {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
-    defmt::println!("Start {}!", core::env!("CARGO_BIN_NAME"));
+    defmt::println!("Start {=str}!", core::env!("CARGO_BIN_NAME"));
     unsafe {
         HEAP.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE);
         let reset_reason: u32 = (*pac::POWER::ptr()).resetreas.read().bits();
-        defmt::info!("Reset reason: {:X}", reset_reason);
+        defmt::info!("Reset reason: {=u32:X}", reset_reason);
     }
     weight::init(weight::Config {
         sampling_interval_hz: 80,
@@ -140,7 +140,7 @@ async fn main(spawner: Spawner) -> ! {
                     weight::Command::StartSampling(weight::SampleType::FilteredRaw(Some(Box::new(
                         move |_, value| {
                             if let Some(average) = average.add_sample(value) {
-                                defmt::info!("Averaged: {}", average);
+                                defmt::info!("Averaged: {=i32}", average);
                             }
                         },
                     ))))
@@ -150,8 +150,7 @@ async fn main(spawner: Spawner) -> ! {
                     weight::Command::StartSampling(weight::SampleType::Calibrated(Some(Box::new(
                         move |_, value| {
                             if let Some(average) = average.add_sample(value) {
-                                // defmt::info!("Averaged: {}", average);
-                                defmt::info!("Averaged: {}", average / 0.454);
+                                defmt::info!("Averaged: {=f32}", average / 0.454);
                             }
                         },
                     ))))

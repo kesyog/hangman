@@ -132,7 +132,7 @@ impl<'d> Ads1230<'d> {
                 n_skips += 1;
                 defmt::info!("Skipping -1 reading");
             } else {
-                defmt::trace!("Raw = {}", raw_reading);
+                defmt::trace!("Raw = 0x{=u32:X}", raw_reading);
                 return Some(Sample { timestamp, value });
             }
         }

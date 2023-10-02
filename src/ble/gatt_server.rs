@@ -180,7 +180,7 @@ pub(crate) async fn run(conn: &Connection, measure_ch: &MeasureChannel) {
                 on_control_message(value, conn, measure_ch);
             }
             ProgressorServiceEvent::DataCccdWrite { notifications } => {
-                defmt::info!("DataCccdWrite: {}", notifications);
+                defmt::debug!("DataCccdWrite: {}", notifications);
             }
         },
     })

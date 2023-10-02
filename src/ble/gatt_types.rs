@@ -171,7 +171,7 @@ impl GattValue for ControlOpcode {
 
     fn from_gatt(data: &[u8]) -> Self {
         if data.len() < Self::MIN_SIZE || data.len() > Self::MAX_SIZE {
-            defmt::error!("Control payload size out of range: {}", data.len());
+            defmt::error!("Control payload size out of range: {=usize}", data.len());
             return Self::Invalid;
         }
         let opcode = data[0];

@@ -44,7 +44,7 @@ pub async fn task(sd: &'static Softdevice, measure_ch: MeasureChannel, wakeup_bu
 
     const ADVERTISED_NAME_STR: Result<&str, core::str::Utf8Error> =
         core::str::from_utf8(super::ADVERTISED_NAME);
-    defmt::info!("Advertising as {}", ADVERTISED_NAME_STR.unwrap());
+    defmt::info!("Advertising as {=str}", ADVERTISED_NAME_STR.unwrap());
     let conn: Connection = match advertising::start(sd).await {
         Ok(conn) => conn,
         Err(AdvertiseError::Timeout) => {
@@ -56,7 +56,7 @@ pub async fn task(sd: &'static Softdevice, measure_ch: MeasureChannel, wakeup_bu
             system_off(measure_ch, wakeup_button).await
         }
         Err(AdvertiseError::Raw(err)) => {
-            defmt::error!("Advertising error: {}", err as u32);
+            defmt::error!("Advertising error: {=u32}", err as u32);
             system_off(measure_ch, wakeup_button).await
         }
     };

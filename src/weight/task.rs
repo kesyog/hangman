@@ -120,7 +120,7 @@ async fn handle_command(cmd: Command, context: &mut MeasurementContext, adc: &Sh
             if let Some(factory_calibration::Constants { m, b }) =
                 context.factory_cal.get_cal_constants()
             {
-                defmt::info!("New calibration: m = {} b = {}", m, b);
+                defmt::info!("New calibration: m = {=f32} b = {=i32}", m, b);
                 super::write_calibration(&mut context.nvm, m, b).await;
                 context.calibrator.lock().await.set_calibration(m, b);
             } else {
@@ -183,7 +183,7 @@ pub async fn task_function(rx: MeasureCommandReceiver, adc: Adc, sd: &'static So
     let nvm = Nvm::new(sd);
     let cal_m = nvm.read_cal_m();
     let cal_b = nvm.read_cal_b();
-    defmt::info!("Loaded calibration: m={} b={}", cal_m, cal_b);
+    defmt::info!("Loaded calibration: m={=f32} b={=i32}", cal_m, cal_b);
     let calibrator: &SharedCalibrator =
         make_static!(Mutex::new(Calibrator::new(median, cal_m, cal_b)));
 

@@ -109,9 +109,9 @@ impl<'d> Hx711<'d> {
             // HX711 sometimes spontaneously returns -1 (0xFFFFFF)
             if value == -1 && n_skips < 3 {
                 n_skips += 1;
-                defmt::info!("Skipping -1 reading");
+                defmt::warn!("Skipping -1 reading");
             } else {
-                defmt::trace!("Raw = {}", value);
+                defmt::trace!("Raw = {=u32:X}", value);
                 return Some(Sample { timestamp, value });
             }
         }

@@ -82,11 +82,11 @@ fn config() -> Config {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
-    defmt::println!("Start {}!", core::env!("CARGO_BIN_NAME"));
+    defmt::println!("Start {=str}!", core::env!("CARGO_BIN_NAME"));
     unsafe {
         HEAP.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE);
         let reset_reason: u32 = (*pac::POWER::ptr()).resetreas.read().bits();
-        defmt::info!("Reset reason: {:X}", reset_reason);
+        defmt::info!("Reset reason: {=u32:X}", reset_reason);
         // Reset certain GPIO settings that are retained through system OFF and interfere with the
         // HAL
         util::disable_all_gpio_sense();
@@ -139,7 +139,7 @@ async fn main(spawner: Spawner) -> ! {
         )))
         .await;
     let battery_voltage = battery_voltage::one_time_sample(p.SAADC, Irqs).await;
-    defmt::info!("Battery voltage: {} mV", battery_voltage);
+    defmt::info!("Battery voltage: {=u32} mV", battery_voltage);
     ch.sender().send(weight::Command::StopSampling).await;
 
     ch.sender().send(weight::Command::Tare).await;
