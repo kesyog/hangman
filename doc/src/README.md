@@ -1,7 +1,7 @@
 # Hangman
 
 <p align="center">
-  <img src ="../../boards/proto1_0/assembled.jpg" width="600" alt="Assembled prototype P0.0 unit">
+  <img src ="assets/assembled.jpg" width="600" alt="Assembled prototype P1.0 unit">
 </p>
 
 Hangman is a Bluetooth-enabled crane scale compatible with the custom [Tindeq Progressor Bluetooth service][API],
