@@ -1,0 +1,6 @@
+[book]
+authors = ["Kesavan Yogeswaran"]
+language = "en"
+multilingual = false
+src = "src"
+title = "Hangman"
