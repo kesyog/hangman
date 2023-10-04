@@ -35,7 +35,8 @@ fn advertising_data(name: &[u8]) -> Result<ArrayVec<u8, 27>, ()> {
         (raw_sd::BLE_GAP_ADV_FLAG_LE_GENERAL_DISC_MODE
             | raw_sd::BLE_GAP_ADV_FLAG_BR_EDR_NOT_SUPPORTED) as u8,
     );
-    advertising_data.push(name.len() as u8);
+    advertising_data.push(name.len() as u8 + 1);
+    advertising_data.push(raw_sd::BLE_GAP_AD_TYPE_COMPLETE_LOCAL_NAME as u8);
     advertising_data
         .try_extend_from_slice(name)
         .map_err(|_| ())?;
