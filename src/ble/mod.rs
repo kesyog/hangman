@@ -28,7 +28,7 @@ type MeasureChannel = Sender<'static, NoopRawMutex, weight::Command, MEASURE_COM
 
 /// Device name to be used in GAP and advertising data. The Tindeq app requires this to be
 /// something of this form.
-const ADVERTISED_NAME: &[u8] = b"Progressor_1719";
+const ADVERTISED_NAME: &[u8] = env!("ADVERTISED_NAME").as_bytes();
 
 fn softdevice_config() -> nrf_softdevice::Config {
     use nrf_softdevice::raw;

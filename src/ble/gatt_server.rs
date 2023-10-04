@@ -24,9 +24,6 @@ use nrf_softdevice::ble::Connection;
 use nrf_softdevice::Softdevice;
 use once_cell::sync::OnceCell;
 
-const DUMMY_VERSION_NUMBER: &[u8] = b"1.2.3.4";
-const DUMMY_ID: u32 = 42;
-
 #[nrf_softdevice::gatt_server]
 struct Server {
     progressor: ProgressorService,
@@ -129,12 +126,22 @@ fn on_control_message(message: ControlOpcode, conn: &Connection, measure_ch: &Me
             }
         }
         ControlOpcode::GetAppVersion => {
-            if notify_data(DataOpcode::AppVersion(DUMMY_VERSION_NUMBER), conn).is_err() {
+            if notify_data(
+                DataOpcode::AppVersion(env!("DEVICE_VERSION_NUMBER").as_bytes()),
+                conn,
+            )
+            .is_err()
+            {
                 defmt::error!("Response to GetAppVersion failed");
             };
         }
         ControlOpcode::GetProgressorID => {
-            if notify_data(DataOpcode::ProgressorId(DUMMY_ID), conn).is_err() {
+            if notify_data(
+                DataOpcode::ProgressorId(env!("DEVICE_ID").parse().unwrap()),
+                conn,
+            )
+            .is_err()
+            {
                 defmt::error!("Response to GetProgressorID failed");
             };
         }

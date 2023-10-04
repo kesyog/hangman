@@ -28,4 +28,7 @@ fn main() {
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=memory.x");
+    println!("cargo:rerun-if-env-changed=ADVERTISED_NAME");
+    println!("cargo:rerun-if-env-changed=DEVICE_ID");
+    println!("cargo:rerun-if-env-changed=DEVICE_VERSION_NUMBER");
 }
