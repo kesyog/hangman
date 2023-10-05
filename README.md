@@ -4,8 +4,8 @@
   <img src ="boards/proto1_0/assembled.jpg" width="600" alt="Assembled prototype P1.0 unit">
 </p>
 
-A Bluetooth-enabled crane scale compatible with the custom [Tindeq Progressor Bluetooth service][API],
-which allows it to be used with compatible tools like the Tindeq mobile app. 
+Hangman is a Bluetooth-enabled crane scale. It's intended use is as a climbing training and rehab
+tool, but it can be used anywhere that requires measuring force or weight.
 
 The hardware retrofits a cheap (~$23) 150kg crane scale from Amazon with a custom PCB based around a
 Nordic nRF52 microcontroller and a differential ADC. The firmware uses [Embassy][Embassy], an
@@ -20,8 +20,9 @@ help my fingers get stronger.
 
 ## Status
 
-The scale is feature-complete. Weight measurement works great with the Tindeq mobile app. Battery
-life is guesstimated to be in the range of several months to a couple of years depending on usage.
+The scale is feature-complete. Weight measurement works great with the [Progressor API][API] and
+compatible tools. Battery life is guesstimated to be in the range of several months to a couple of
+years depending on usage.
 
 There are still a few more software updates planned. See the Issues section for the major ones.
 

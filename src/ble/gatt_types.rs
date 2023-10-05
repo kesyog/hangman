@@ -12,9 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use arrayvec::ArrayVec;
 use bytemuck_derive::{Pod, Zeroable};
 use defmt::Format;
 use nrf_softdevice::ble::GattValue;
+
+/// Sized to hold the largest possible data payload
+pub(crate) const DATA_PAYLOAD_SIZE: usize = 12;
+pub(crate) type CalibrationCurve = [u8; 12];
+
+/// Convert an integer into an array of bytes with any zeros on the MSB side trimmed
+fn to_le_bytes_without_trailing_zeros<T: Into<u64>>(input: T) -> ArrayVec<u8, 8> {
+    let input = input.into();
+    if input == 0 {
+        return ArrayVec::try_from([0_u8].as_slice()).unwrap();
+    }
+    let mut out: ArrayVec<u8, 8> = input
+        .to_le_bytes()
+        .into_iter()
+        .rev()
+        .skip_while(|&i| i == 0)
+        .collect();
+    out.reverse();
+    out
+}
 
 #[derive(Copy, Clone)]
 pub(crate) enum DataOpcode {
@@ -22,7 +43,8 @@ pub(crate) enum DataOpcode {
     Weight(f32, u32),
     LowPowerWarning,
     AppVersion(&'static [u8]),
-    ProgressorId(u32),
+    ProgressorId(u64),
+    CalibrationCurve(CalibrationCurve),
 }
 
 impl DataOpcode {
@@ -30,7 +52,8 @@ impl DataOpcode {
         match self {
             DataOpcode::BatteryVoltage(..)
             | DataOpcode::AppVersion(..)
-            | DataOpcode::ProgressorId(..) => 0x00,
+            | DataOpcode::ProgressorId(..)
+            | DataOpcode::CalibrationCurve(..) => 0x00,
             DataOpcode::Weight(..) => 0x01,
             DataOpcode::LowPowerWarning => 0x04,
         }
@@ -38,30 +61,34 @@ impl DataOpcode {
 
     fn length(&self) -> u8 {
         match self {
-            DataOpcode::BatteryVoltage(..) | DataOpcode::ProgressorId(..) => 4,
+            DataOpcode::BatteryVoltage(..) => 4,
             DataOpcode::Weight(..) => 8,
+            DataOpcode::ProgressorId(id) => to_le_bytes_without_trailing_zeros(*id).len() as u8,
             DataOpcode::LowPowerWarning => 0,
             DataOpcode::AppVersion(version) => version.len() as u8,
+            DataOpcode::CalibrationCurve(curve) => curve.len() as u8,
         }
     }
 
-    fn value(&self) -> [u8; 8] {
-        let mut value = [0; 8];
+    fn value(&self) -> [u8; DATA_PAYLOAD_SIZE] {
+        let mut value = [0; DATA_PAYLOAD_SIZE];
         match self {
             DataOpcode::BatteryVoltage(voltage) => {
                 value[0..4].copy_from_slice(&voltage.to_le_bytes());
             }
             DataOpcode::Weight(weight, timestamp) => {
                 value[0..4].copy_from_slice(&weight.to_le_bytes());
-                value[4..].copy_from_slice(&timestamp.to_le_bytes());
+                value[4..8].copy_from_slice(&timestamp.to_le_bytes());
             }
             DataOpcode::LowPowerWarning => (),
             DataOpcode::ProgressorId(id) => {
-                value[0..4].copy_from_slice(&id.to_le_bytes());
+                let bytes = to_le_bytes_without_trailing_zeros(*id);
+                value[0..bytes.len()].copy_from_slice(&bytes);
             }
             DataOpcode::AppVersion(version) => {
                 value[0..version.len()].copy_from_slice(version);
             }
+            DataOpcode::CalibrationCurve(curve) => value = *curve,
         };
         value
     }
@@ -72,7 +99,7 @@ impl DataOpcode {
 pub(crate) struct DataPoint {
     opcode: u8,
     length: u8,
-    value: [u8; 8],
+    value: [u8; DATA_PAYLOAD_SIZE],
 }
 
 impl DataPoint {
@@ -80,7 +107,7 @@ impl DataPoint {
     ///
     /// One should prefer creating a `DataPoint` from a `DataOpcode` to ensure that the packet is
     /// correctly formed.
-    pub(crate) fn from_parts(opcode: u8, length: u8, value: [u8; 8]) -> Self {
+    pub(crate) fn from_parts(opcode: u8, length: u8, value: [u8; DATA_PAYLOAD_SIZE]) -> Self {
         DataPoint {
             opcode,
             length,
@@ -123,6 +150,7 @@ pub(crate) enum ControlOpcode {
     StartPeakRfdMeasurementSeries,
     AddCalibrationPoint(f32),
     SaveCalibration,
+    GetCalibrationCurve,
     GetAppVersion,
     GetErrorInfo,
     ClearErrorInfo,
@@ -153,6 +181,7 @@ impl Format for ControlOpcode {
                 defmt::write!(fmt, "AddCalibrationPoint {=f32}", val);
             }
             ControlOpcode::SaveCalibration => defmt::write!(fmt, "SaveCalibration"),
+            ControlOpcode::GetCalibrationCurve => defmt::write!(fmt, "GetCalibrationCurve"),
             ControlOpcode::GetAppVersion => defmt::write!(fmt, "GetAppVersion"),
             ControlOpcode::GetErrorInfo => defmt::write!(fmt, "GetErrorInfo"),
             ControlOpcode::ClearErrorInfo => defmt::write!(fmt, "ClearErrorInfo"),
@@ -200,6 +229,7 @@ impl GattValue for ControlOpcode {
             0x6E => Self::Shutdown,
             0x6F => Self::SampleBattery,
             0x70 => Self::GetProgressorID,
+            0x72 => Self::GetCalibrationCurve,
             _ => Self::Unknown(opcode),
         }
     }

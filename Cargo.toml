@@ -27,6 +27,7 @@ embedded-alloc = "0.5"
 embedded-storage = "0.3"
 embedded-storage-async = "0.4"
 fix-hidden-lifetime-bug = "0.2.5"
+hex = { version = "0.4", default-features = false }
 median = { version = "0.3", default-features = false }
 nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", features = ["s113", "ble-gatt-server", "ble-peripheral", "critical-section-impl", "defmt", "nightly"] }
 nrf52832-hal = { version = "0.16.0", default-features = false, optional = true }

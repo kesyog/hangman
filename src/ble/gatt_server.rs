@@ -14,7 +14,9 @@
 
 extern crate alloc;
 
-use super::gatt_types::{ControlOpcode, DataOpcode, DataPoint};
+use super::gatt_types::{
+    CalibrationCurve, ControlOpcode, DataOpcode, DataPoint, DATA_PAYLOAD_SIZE,
+};
 use super::MeasureChannel;
 use crate::{battery_voltage, weight};
 use alloc::boxed::Box;
@@ -67,8 +69,8 @@ fn raw_notify_data(
     raw_payload: &[u8],
     connection: &Connection,
 ) -> Result<(), NotifyValueError> {
-    assert!(raw_payload.len() <= 8);
-    let mut payload = [0; 8];
+    assert!(raw_payload.len() <= DATA_PAYLOAD_SIZE);
+    let mut payload = [0; DATA_PAYLOAD_SIZE];
     payload[0..raw_payload.len()].copy_from_slice(raw_payload);
 
     let data = DataPoint::from_parts(opcode, raw_payload.len().try_into().unwrap(), payload);
@@ -162,6 +164,24 @@ fn on_control_message(message: ControlOpcode, conn: &Connection, measure_ch: &Me
                 .is_err()
             {
                 defmt::error!("Failed to send SaveCalibration");
+            }
+        }
+        ControlOpcode::GetCalibrationCurve => {
+            // The calibration curve is passed in via environment variable as a string of
+            // hex-encoded bytes for convenience. Cache the decoded bytes.
+            static CALIBRATION_CURVE: OnceCell<CalibrationCurve> = OnceCell::new();
+            let curve = CALIBRATION_CURVE.get_or_init(|| {
+                let mut buffer: CalibrationCurve = CalibrationCurve::default();
+                let Ok(_) = hex::decode_to_slice(
+                    env!("CALIBRATION_CURVE").as_bytes(),
+                    buffer.as_mut_slice(),
+                ) else {
+                    defmt::panic!("Invalid hex string provided for calibration curve");
+                };
+                buffer
+            });
+            if notify_data(DataOpcode::CalibrationCurve(*curve), conn).is_err() {
+                defmt::error!("Failed to notify calibration curve");
             }
         }
         _ => (),
