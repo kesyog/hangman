@@ -70,7 +70,7 @@ impl<'d> Ads1230<'d> {
     pub async fn power_up(&mut self) {
         self.clock.set_low();
         self.vdda_on.set_low();
-        // Give plenty of time (relative to Proto1.0 RC time constants) to for the analog supply
+        // Give plenty of time (relative to Proto1.0 RC time constants) for the analog supply
         // voltage to settle
         Timer::after(Duration::from_micros(100)).await;
         self.state = PowerState::On;

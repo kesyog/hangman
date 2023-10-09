@@ -127,7 +127,7 @@ async fn main(spawner: Spawner) -> ! {
         gpio::OutputDrive::Standard,
     );
 
-    // Not supposed to power up the ADS1230 until at least 10us after the poewr supplies have come
+    // Not supposed to power up the ADS1230 until at least 10us after the power supplies have come
     // up. Insert a delay to be safe.
     Timer::after(Duration::from_micros(10)).await;
     let mut pwdn = gpio::Output::new(
