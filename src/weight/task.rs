@@ -25,7 +25,6 @@ use crate::MeasureCommandReceiver;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
-use fix_hidden_lifetime_bug::fix_hidden_lifetime_bug;
 use nrf_softdevice::Softdevice;
 use static_cell::make_static;
 
@@ -130,10 +129,6 @@ async fn handle_command(cmd: Command, context: &mut MeasurementContext, adc: &Sh
     }
 }
 
-// Workaround for Rust compiler bug
-// See https://github.com/danielhenrymantilla/fix_hidden_lifetime_bug.rs
-#[allow(clippy::manual_async_fn)]
-#[fix_hidden_lifetime_bug]
 async fn measure(context: &mut MeasurementContext) {
     let MeasurementState::Active(ref mut sample_type, ref mut start_time) = context.state else {
         return;
@@ -199,7 +194,7 @@ pub async fn task_function(rx: MeasureCommandReceiver, adc: Adc, sd: &'static So
     };
 
     loop {
-        if let Ok(cmd) = rx.try_recv() {
+        if let Ok(cmd) = rx.try_receive() {
             defmt::info!("Measure task received command: {}", cmd);
             handle_command(cmd, &mut context, adc).await;
         }

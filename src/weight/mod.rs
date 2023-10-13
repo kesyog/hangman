@@ -37,6 +37,7 @@ pub use task::task_function;
 
 static SAMPLING_INTERVAL_HZ: OnceCell<usize> = OnceCell::new();
 // Temporary defaults for test load cell
+// TODO: provide better defaults for Hangman P1_0
 pub const DEFAULT_CALIBRATION_M: f32 = 4.6750380809321235e-06;
 pub const DEFAULT_CALIBRATION_B: i32 = -100598;
 
@@ -111,13 +112,13 @@ pub struct Sample<T> {
     pub value: T,
 }
 
-pub trait SampleProducerMut {
+pub(crate) trait SampleProducerMut {
     type Output;
 
     async fn sample(&mut self) -> Sample<Self::Output>;
 }
 
-pub trait SampleProducer {
+pub(crate) trait SampleProducer {
     type Output;
 
     async fn sample(&self) -> Sample<Self::Output>;
