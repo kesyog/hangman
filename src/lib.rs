@@ -14,7 +14,6 @@
 
 #![cfg_attr(not(test), no_std)]
 #![feature(type_alias_impl_trait)]
-#![feature(async_fn_in_trait)]
 #![forbid(unsafe_op_in_unsafe_fn)]
 
 pub mod battery_voltage;
