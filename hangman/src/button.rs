@@ -72,6 +72,13 @@ impl Button {
         &port.pin_cnf[usize::from(self.pin_number)]
     }
 
+    /// Enable pin sensing mechanism (SENSE) for button's pin. Useful for allowing button to wake
+    /// MCU from sleep modes.
+    ///
+    /// # Safety
+    ///
+    /// This breaks invariants in the embassy hal's GPIO driver. One should disable the sense line
+    /// before using the embassy hal's GPIO driver, including pin re-initialization after wakeup.
     pub unsafe fn enable_sense(&mut self) {
         let cfg = unsafe { self.steal_pin_cnf() };
         match self.polarity {

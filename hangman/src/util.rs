@@ -14,6 +14,12 @@
 
 use crate::pac;
 
+/// Disable pin sensing mechanism (SENSE) for all GPIO pins, matching the default on-reset state.
+///
+/// # Safety
+///
+/// This may break invariants in the embassy hal's GPIO driver. Recommended to only use this before
+/// system off or at wakeup before performing any GPIO initialization.
 pub unsafe fn disable_all_gpio_sense() {
     #[cfg(feature = "nrf52840")]
     {
