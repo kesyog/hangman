@@ -26,6 +26,7 @@ embassy-usb = { version = "0.1", features = ["defmt"], optional = true}
 embedded-alloc = "0.5"
 embedded-storage = "0.3"
 embedded-storage-async = "0.4"
+hangman-utils = { path = "../hangman_utils" }
 hex = { version = "0.4", default-features = false }
 median = { version = "0.3", default-features = false }
 nrf-softdevice = { version = "0.1", features = ["s113", "ble-gatt-server", "ble-peripheral", "critical-section-impl", "defmt"] }

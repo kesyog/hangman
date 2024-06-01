@@ -15,7 +15,6 @@
 pub mod ads1230;
 pub mod average;
 mod calibrate;
-mod factory_calibration;
 pub mod hx711;
 pub mod median;
 mod random;

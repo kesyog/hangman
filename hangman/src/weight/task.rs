@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use super::calibrate::Calibrator;
-use super::factory_calibration::{self, CalPoint, TwoPoint};
 use super::tare::Tarer;
 #[cfg(feature = "nrf52832")]
 use super::Ads1230;
@@ -25,6 +24,7 @@ use crate::MeasureCommandReceiver;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
+use hangman_utils::two_point_cal::{self, CalPoint, TwoPoint};
 use nrf_softdevice::Softdevice;
 use static_cell::make_static;
 
@@ -51,7 +51,7 @@ struct MeasurementContext {
     calibrator: &'static SharedCalibrator,
     tarer: Tarer<&'static SharedCalibrator>,
     nvm: Nvm,
-    factory_cal: TwoPoint,
+    factory_cal: TwoPoint<RawReading>,
 }
 
 async fn handle_command(cmd: Command, context: &mut MeasurementContext, adc: &SharedAdc) {
@@ -113,11 +113,13 @@ async fn handle_command(cmd: Command, context: &mut MeasurementContext, adc: &Sh
             }
             let Sample { value, .. } = context.median.sample().await;
             let reading = filter.add_sample(value).unwrap();
-            context.factory_cal.add_point(CalPoint { weight, reading });
+            context.factory_cal.add_point(CalPoint {
+                expected_value: weight,
+                measured_value: reading,
+            });
         }
         Command::SaveCalibration => {
-            if let Some(factory_calibration::Constants { m, b }) =
-                context.factory_cal.get_cal_constants()
+            if let Some(two_point_cal::Constants { m, b }) = context.factory_cal.get_cal_constants()
             {
                 defmt::info!("New calibration: m = {=f32} b = {=i32}", m, b);
                 super::write_calibration(&mut context.nvm, m, b).await;

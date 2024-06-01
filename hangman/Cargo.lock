@@ -710,6 +710,7 @@ dependencies = [
  "embedded-alloc",
  "embedded-storage",
  "embedded-storage-async",
+ "hangman-utils",
  "hex",
  "median",
  "nrf-softdevice",
@@ -721,6 +722,14 @@ dependencies = [
  "rand",
  "static_cell",
  "typenum",
+]
+
+[[package]]
+name = "hangman-utils"
+version = "0.1.0"
+dependencies = [
+ "defmt",
+ "num-traits",
 ]
 
 [[package]]

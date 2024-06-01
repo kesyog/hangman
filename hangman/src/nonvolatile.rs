@@ -140,14 +140,3 @@ impl Nvm {
             .expect("Write to succeed");
     }
 }
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn addresses() {
-        // Ensure that all of the registers and 4-byte checksum can fit on our Flash page
-        assert!(4 * (RegisterRead::COUNT + 1) <= MAX_ADDR - MIN_ADDR);
-    }
-}

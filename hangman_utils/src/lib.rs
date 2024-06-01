@@ -1,4 +1,4 @@
-// Copyright 2023 Google LLC
+// Copyright 2024 Google LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,21 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::pac;
+#![cfg_attr(not(test), no_std)]
+#![forbid(unsafe_op_in_unsafe_fn)]
 
-pub unsafe fn disable_all_gpio_sense() {
-    #[cfg(feature = "nrf52840")]
-    {
-        let p1 = unsafe { &(*pac::P1::ptr()) };
-        for cnf in &p1.pin_cnf {
-            cnf.modify(|_, w| w.sense().disabled());
-        }
-    }
-    let p0 = unsafe { &(*pac::P0::ptr()) };
-    for cnf in &p0.pin_cnf {
-        cnf.modify(|_, w| w.sense().disabled());
-    }
-}
+#[macro_use]
+pub mod log;
+pub mod two_point_cal;
 
 /// Convert a signed integer in a u32 container to a signed integer
 pub const fn convert_signed_to_i32<const BITS: u32>(mut input: u32) -> i32 {
@@ -38,8 +29,6 @@ pub const fn convert_signed_to_i32<const BITS: u32>(mut input: u32) -> i32 {
     input as i32
 }
 
-// TODO: figure out how to actually run these tests on host
-// I promise I ran them in the playground.
 #[cfg(test)]
 mod tests {
     use super::*;
