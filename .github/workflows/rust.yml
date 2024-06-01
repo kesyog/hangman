@@ -1,0 +1,61 @@
+name: Rust
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  device:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+          components: clippy
+          targets: ["thumbv7em-none-eabihf"]
+    - name: Build nrf52832
+      run: cargo build --verbose --release --bin proto1_0 --bin calibration_p1 --bin blinky_p1 --features nrf52832
+      working-directory: hangman
+    - name: Build nrf52840
+      run: cargo build --release --bin proto0_0 --bin calibration_p0 --bin blinky_p0 --bin dongle --features nrf52840 --no-default-features
+      working-directory: hangman
+    - name: Clippy nrf52832
+      run: cargo clippy --bin proto1_0 --bin calibration_p1 --bin blinky_p1 --features nrf52832
+      working-directory: hangman
+    - name: Clippy nrf52840
+      run: cargo clippy --bin proto0_0 --bin calibration_p0 --bin blinky_p0 --bin dongle --features nrf52840 --no-default-features
+      working-directory: hangman
+  host:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+          components: clippy
+    - name: Build hangman_utils
+      run: cargo build
+      working-directory: hangman_utils
+    - name: Build hangman_utils
+      run: cargo clippy
+      working-directory: hangman_utils
+    - name: Test
+      run: cargo test --verbose
+      working-directory: hangman_utils
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@nightly
+      with:
+          components: rustfmt
+    - name: rustfmt hangman
+      run: cargo fmt --check
+      working-directory: hangman
+    - name: rustfmt hangman_utils
+      run: cargo fmt --check
+      working-directory: hangman_utils
