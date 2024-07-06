@@ -1,0 +1,11 @@
+{
+  "lspconfig": {
+    "rust_analyzer": {
+      "rust-analyzer.checkOnSave.allTargets": false,
+      "rust-analyzer.checkOnSave.extraArgs": [
+          "--target",
+          "thumbv7m-none-eabihf"
+      ]
+    }
+  }
+}
