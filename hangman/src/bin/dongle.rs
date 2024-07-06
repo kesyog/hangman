@@ -38,13 +38,12 @@ use hangman::console;
 use hangman::{
     battery_voltage, ble, blocking_hal,
     button::{self, Button},
-    pac, util,
+    make_static, pac, util,
     weight::{self, Hx711},
     MeasureCommandChannel, SharedDelay,
 };
 use nrf_softdevice::{self as _, SocEvent, Softdevice};
 use panic_probe as _;
-use static_cell::make_static;
 
 #[global_allocator]
 /// Create a small heap. Not sure how to pass around closures without one.
@@ -106,7 +105,8 @@ async fn main(spawner: Spawner) -> ! {
     // This will reset the GPIO latch signal
     let p = embassy_nrf::init(config());
     let syst = pac::CorePeripherals::take().unwrap().SYST;
-    let delay: &'static SharedDelay = make_static!(Mutex::new(SysTickDelay::new(syst)));
+    let delay: &'static SharedDelay =
+        make_static!(SharedDelay, Mutex::new(SysTickDelay::new(syst)));
 
     // For debugging
     let _green_led = gpio::Output::new(
@@ -129,7 +129,8 @@ async fn main(spawner: Spawner) -> ! {
     // USB setup
     // Hack: pretend USB is already connected. not a bad assumption since this is a dongle
     // There might be a race condition at startup between USB init and SD init.
-    let usb_detect_ref: &SoftwareVbusDetect = make_static!(SoftwareVbusDetect::new(true, true));
+    let usb_detect_ref: &SoftwareVbusDetect =
+        make_static!(SoftwareVbusDetect, SoftwareVbusDetect::new(true, true));
 
     let sd = ble::init_softdevice();
     spawner.must_spawn(softdevice_task(sd, usb_detect_ref));
@@ -148,7 +149,7 @@ async fn main(spawner: Spawner) -> ! {
     #[cfg(feature = "console")]
     let (usb, class) = console::board::setup_usb(p.USBD, Irqs, usb_detect_ref);
 
-    let ch: &MeasureCommandChannel = make_static!(Channel::new());
+    let ch: &MeasureCommandChannel = make_static!(MeasureCommandChannel, Channel::new());
     spawner.must_spawn(weight::task_function(ch.receiver(), hx711, sd));
     // Sample battery voltage while sampling to get a reading under load
     ch.sender()

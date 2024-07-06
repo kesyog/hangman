@@ -13,12 +13,11 @@
 // limitations under the License.
 
 use super::{Driver, UsbDriver};
-use crate::Irqs;
+use crate::{make_static, Irqs};
 use embassy_nrf::peripherals::USBD;
 use embassy_nrf::usb::vbus_detect::SoftwareVbusDetect;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::UsbDevice;
-use static_cell::make_static;
 
 pub(crate) fn setup_usb(
     usbd: USBD,
@@ -55,13 +54,16 @@ pub(crate) fn setup_usb(
         control_buf: [u8; 64],
         serial_state: State<'static>,
     }
-    let res: &mut Resources = make_static!(Resources {
-        device_descriptor: [0; 256],
-        config_descriptor: [0; 256],
-        bos_descriptor: [0; 256],
-        control_buf: [0; 64],
-        serial_state: State::new(),
-    });
+    let res: &mut Resources = make_static!(
+        Resources,
+        Resources {
+            device_descriptor: [0; 256],
+            config_descriptor: [0; 256],
+            bos_descriptor: [0; 256],
+            control_buf: [0; 64],
+            serial_state: State::new(),
+        }
+    );
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     let mut builder = embassy_usb::Builder::new(

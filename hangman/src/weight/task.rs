@@ -19,14 +19,12 @@ use super::Ads1230;
 #[cfg(feature = "nrf52840")]
 use super::Hx711;
 use super::{average, median::Median, Command, RawReading, Sample, SampleProducerMut, SampleType};
-use crate::nonvolatile::Nvm;
-use crate::MeasureCommandReceiver;
+use crate::{make_static, nonvolatile::Nvm, MeasureCommandReceiver};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Instant, Timer};
 use hangman_utils::two_point_cal::{self, CalPoint, TwoPoint};
 use nrf_softdevice::Softdevice;
-use static_cell::make_static;
 
 const THREAD_SLEEP_DELAY: Duration = Duration::from_millis(100);
 
@@ -174,15 +172,18 @@ async fn measure(context: &mut MeasurementContext) {
 #[embassy_executor::task]
 pub async fn task_function(rx: MeasureCommandReceiver, adc: Adc, sd: &'static Softdevice) {
     defmt::debug!("Starting measurement task");
-    let adc: &SharedAdc = make_static!(Mutex::new(adc));
-    let median: &'static SharedFilteredAdc = make_static!(Mutex::new(Median::new(adc)));
+    let adc: &SharedAdc = make_static!(SharedAdc, Mutex::new(adc));
+    let median: &'static SharedFilteredAdc =
+        make_static!(SharedFilteredAdc, Mutex::new(Median::new(adc)));
 
     let nvm = Nvm::new(sd);
     let cal_m = nvm.read_cal_m();
     let cal_b = nvm.read_cal_b();
     defmt::info!("Loaded calibration: m={=f32} b={=i32}", cal_m, cal_b);
-    let calibrator: &SharedCalibrator =
-        make_static!(Mutex::new(Calibrator::new(median, cal_m, cal_b)));
+    let calibrator: &SharedCalibrator = make_static!(
+        SharedCalibrator,
+        Mutex::new(Calibrator::new(median, cal_m, cal_b))
+    );
 
     let tarer = Tarer::new(calibrator);
     let mut context = MeasurementContext {

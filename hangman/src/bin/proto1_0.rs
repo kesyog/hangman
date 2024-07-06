@@ -36,13 +36,12 @@ use embedded_alloc::Heap;
 use hangman::{
     battery_voltage, ble, blocking_hal,
     button::{self, Button},
-    pac, sleep, util,
+    make_static, pac, sleep, util,
     weight::{self, Ads1230},
     MeasureCommandChannel, SharedDelay,
 };
 use nrf_softdevice::{self as _, Softdevice};
 use panic_probe as _;
-use static_cell::make_static;
 
 #[global_allocator]
 /// Create a small heap. Not sure how to pass around closures without one.
@@ -96,7 +95,8 @@ async fn main(spawner: Spawner) -> ! {
 
     let p = embassy_nrf::init(config());
     let syst = pac::CorePeripherals::take().unwrap().SYST;
-    let delay: &'static SharedDelay = make_static!(Mutex::new(SysTickDelay::new(syst)));
+    let delay: &'static SharedDelay =
+        make_static!(SharedDelay, Mutex::new(SysTickDelay::new(syst)));
 
     let sd = ble::init_softdevice();
     spawner.must_spawn(softdevice_task(sd));
@@ -143,7 +143,7 @@ async fn main(spawner: Spawner) -> ! {
     let mut adc = Ads1230::new(adc_data, adc_clock, vdda_on, delay);
     adc.schedule_offset_calibration().await;
 
-    let ch: &MeasureCommandChannel = make_static!(Channel::new());
+    let ch: &MeasureCommandChannel = make_static!(MeasureCommandChannel, Channel::new());
     spawner.must_spawn(weight::task_function(ch.receiver(), adc, sd));
 
     // Sample battery voltage while sampling to get a reading under load

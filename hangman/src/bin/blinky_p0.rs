@@ -33,7 +33,6 @@ use embedded_alloc::Heap;
 use hangman::{ble, pac};
 use nrf_softdevice::{self as _, Softdevice};
 use panic_probe as _;
-// use static_cell::make_static;
 
 #[allow(dead_code)]
 enum Mode {

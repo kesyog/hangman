@@ -34,12 +34,11 @@ use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel, mutex::M
 use embassy_time::{Duration, Timer};
 use embedded_alloc::Heap;
 use hangman::{
-    ble, blocking_hal, pac,
+    ble, blocking_hal, make_static, pac,
     weight::{self, average, Ads1230},
 };
 use nrf_softdevice::{self as _, Softdevice};
 use panic_probe as _;
-use static_cell::make_static;
 
 type SharedDelay = Mutex<NoopRawMutex, SysTickDelay>;
 
@@ -87,7 +86,8 @@ async fn main(spawner: Spawner) -> ! {
 
     let p = embassy_nrf::init(config());
     let syst = pac::CorePeripherals::take().unwrap().SYST;
-    let delay: &'static SharedDelay = make_static!(Mutex::new(SysTickDelay::new(syst)));
+    let delay: &'static SharedDelay =
+        make_static!(SharedDelay, Mutex::new(SysTickDelay::new(syst)));
 
     let sd = ble::init_softdevice();
     spawner.must_spawn(softdevice_task(sd));
@@ -118,7 +118,8 @@ async fn main(spawner: Spawner) -> ! {
     let mut adc = Ads1230::new(adc_data, adc_clock, vdda_on, delay);
     adc.schedule_offset_calibration().await;
 
-    let ch: &hangman::MeasureCommandChannel = make_static!(Channel::new());
+    let ch: &hangman::MeasureCommandChannel =
+        make_static!(hangman::MeasureCommandChannel, Channel::new());
     spawner.must_spawn(weight::task_function(ch.receiver(), adc, sd));
 
     let mut button = gpio::Input::new(p.P0_09.degrade(), gpio::Pull::Up);

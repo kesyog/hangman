@@ -36,7 +36,7 @@ num = { version = "0.4", default-features = false }
 once_cell = { version = "1.18", default-features = false, features = ["critical-section"] }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 rand = { version = "0.8", default-features = false, features = ["nightly"] }
-static_cell = { version = "1", features = ["nightly"] }
+static_cell = { version = "2", features = ["nightly"] }
 typenum = "1.17"
 
 [features]
