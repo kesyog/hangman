@@ -21,7 +21,7 @@ characteristic. This should be the only writable characteristic. This sends the 
 maximum weight but less than 150kg, the maximum capacity of the scale.
 1. Convert the known weight, in kg, to a 32-bit floating point number in little-endian format. Write
 `69 <your hex bytes here>` to the same characteristic as earlier. As an example, if your known
-weight were 100.0 kg, you would send `690000f042`.
+weight were 120.0 kg, you would send `690000f042`.
 1. If you mess up entering in either meaurement, feel free to resend the corresponding command.
 1. Once you're set, write `0x6A` to the same characteristic to save the calibration.
 1. At this point, disconnect from Hangman and test it out using the Tindeq mobile app or something
