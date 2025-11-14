@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# This is a helper script to flash the nrf52 USB stick developer module
 
 TMPFILE=$(mktemp /tmp/hangman.XXXXXX.zip)
 
