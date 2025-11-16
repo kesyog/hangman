@@ -1,6 +1,8 @@
 [book]
+title = "Hangman"
 authors = ["Kesavan Yogeswaran"]
 language = "en"
-multilingual = false
 src = "src"
-title = "Hangman"
+
+[rust]
+edition = "2021"
